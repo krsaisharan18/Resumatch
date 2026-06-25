@@ -1,0 +1,10 @@
+streamlit
+spacy
+scikit-learn
+plotly
+pandas
+numpy
+pdfplumber
+python-docx
+nltk
+regex
