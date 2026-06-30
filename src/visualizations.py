@@ -16,8 +16,7 @@ RED     = "#F85149"
 PURPLE  = "#A371F7"
 
 BASE = dict(paper_bgcolor=BG, plot_bgcolor=BG,
-            font=dict(family="Inter,sans-serif", color=TXT, size=12),
-            margin=dict(l=16,r=16,t=44,b=16))
+            font=dict(family="Inter,sans-serif", color=TXT, size=12))
 
 def gauge_chart(score, title="Overall Match"):
     color = GREEN if score>=65 else AMBER if score>=40 else RED
