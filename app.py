@@ -24,9 +24,20 @@ html, body { background:#0D1117 !important; font-family:'Inter',sans-serif !impo
 .block-container { padding:2rem 2.5rem 3rem !important; max-width:1400px !important; }
 
 h1,h2,h3,h4,h5,h6 { color:#E6EDF3 !important; font-family:'Inter',sans-serif !important; }
-p,span,div,label,li,td,th,a { color:#C9D1D9 !important; font-family:'Inter',sans-serif !important; }
+label,li,td,th { color:#C9D1D9 !important; font-family:'Inter',sans-serif !important; }
+.stMarkdown p,.stMarkdown li,.stMarkdown span { color:#C9D1D9 !important; font-family:'Inter',sans-serif !important; }
 .stMarkdown h1,.stMarkdown h2,.stMarkdown h3 { color:#E6EDF3 !important; }
-.stMarkdown p,.stMarkdown li { color:#C9D1D9 !important; }
+
+/* Reset Streamlit wrapper margins — the #1 cause of overlap */
+/* st.markdown wraps content in element-container > stMarkdown > stMarkdownContainer > p */
+/* that <p> has margin-bottom:1rem by default, stacking with our spacing = overlaps */
+[data-testid="stMarkdownContainer"] p { margin:0 !important; padding:0 !important; }
+[data-testid="stMarkdownContainer"] { padding:0 !important; }
+.element-container { margin-bottom:0 !important; }
+.stMarkdown { margin-bottom:0 !important; }
+/* Restore a small gap between consecutive elements */
+[data-testid="stVerticalBlock"] > .element-container { margin-bottom:8px !important; }
+[data-testid="stVerticalBlockBorderWrapper"] > div > div > .element-container { margin-bottom:6px !important; }
 
 /* SIDEBAR */
 [data-testid="stSidebar"] { background:#161B22 !important; border-right:1px solid #30363D !important; }
@@ -273,8 +284,7 @@ with tab1:
                     tmp = save_upload(jd_file); jd_text = extract_text(tmp); os.unlink(tmp)
                     st.success(f"Loaded: {jd_file.name}")
 
-    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-
+    st.write("")
     if st.button("🔍  Analyse Resume", key="btn_analyse"):
         if not resume_file:
             st.error("Upload a resume.")
@@ -288,8 +298,7 @@ with tab1:
                 scores = candidate_score(raw, parsed.get("skills",[]), jd_text,
                                         weights={"cosine":cosine_w,"skill":skill_w})
 
-            st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
-
+            st.write("")
             k1,k2,k3,k4 = st.columns(4)
             g = scores["match_grade"]
             with k1: st.markdown(kpi(f'{scores["composite_score"]:.1f}%', "Composite Score", "#58A6FF"), unsafe_allow_html=True)
@@ -302,8 +311,7 @@ with tab1:
                 f'<span class="kpi-lbl">Match Grade</span>'
                 f'</div>', unsafe_allow_html=True)
 
-            st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
-
+            st.write("")
             ch1,ch2,ch3 = st.columns([1.1,1.1,1.4])
             with ch1: st.plotly_chart(gauge_chart(scores["composite_score"]), use_container_width=True)
             with ch2: st.plotly_chart(skill_donut(len(scores["matched_skills"]),
@@ -448,8 +456,7 @@ with tab2:
                                     placeholder="Paste job description here…",
                                     label_visibility="collapsed", key="jdm")
 
-    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-
+    st.write("")
     if st.button("🏆  Rank All Candidates", key="btn_rank"):
         if not multi_files:
             st.error("Upload at least one resume.")
@@ -514,8 +521,7 @@ with tab3:
                         'Leave blank → coverage mode against full vocabulary</p>',
                         unsafe_allow_html=True)
 
-    st.markdown('<div style="height:8px"></div>', unsafe_allow_html=True)
-
+    st.write("")
     if st.button("📐  Compute Metrics", key="btn_metrics"):
         if not mf:
             st.error("Upload a resume first.")
@@ -527,14 +533,14 @@ with tab3:
                   if gt_input.strip() else None)
             metrics = skill_extraction_metrics(predicted, gt)
 
-            st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+            st.write("")
             p1,p2,p3,p4 = st.columns(4)
             with p1: st.markdown(kpi(f'{metrics["precision"]*100:.1f}%', "Precision", "#58A6FF"), unsafe_allow_html=True)
             with p2: st.markdown(kpi(f'{metrics["recall"]*100:.1f}%', "Recall", "#3FB950"), unsafe_allow_html=True)
             with p3: st.markdown(kpi(f'{metrics["f1_score"]*100:.1f}%', "F1 Score", "#D29922"), unsafe_allow_html=True)
             with p4: st.markdown(kpi(len(predicted), "Skills Extracted", "#A371F7"), unsafe_allow_html=True)
 
-            st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
+            st.write("")
             r1,r2 = st.columns([1,1.3], gap="large")
             with r1:
                 st.plotly_chart(prf_radar(metrics["precision"],
