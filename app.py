@@ -452,9 +452,20 @@ with tab2:
     with m2:
         with st.container(border=True):
             st.markdown('<span class="sec">📋 Job Description</span>', unsafe_allow_html=True)
-            jd_multi = st.text_area("jdm", height=120,
-                                    placeholder="Paste job description here…",
-                                    label_visibility="collapsed", key="jdm")
+            jd_multi_method = st.radio("mm", ["Paste text","Upload file"],
+                                       horizontal=True, label_visibility="collapsed", key="jdm_method")
+            if jd_multi_method == "Paste text":
+                jd_multi = st.text_area("jdm", height=120,
+                                        placeholder="Paste job description here…",
+                                        label_visibility="collapsed", key="jdm")
+            else:
+                jd_multi_file = st.file_uploader("jdf2", type=["pdf","docx","txt"],
+                                                 key="jdf2", label_visibility="collapsed")
+                jd_multi = ""
+                if jd_multi_file:
+                    from src.resume_parser import extract_text
+                    tmp = save_upload(jd_multi_file); jd_multi = extract_text(tmp); os.unlink(tmp)
+                    st.success(f"Loaded: {jd_multi_file.name}")
 
     st.write("")
     if st.button("🏆  Rank All Candidates", key="btn_rank"):
