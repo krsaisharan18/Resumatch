@@ -368,6 +368,16 @@ with tab1:
                 st.markdown(f'<div class="card"><span class="sec">📜 Certifications</span>{cert_html}</div>',
                             unsafe_allow_html=True)
 
+                achievements = parsed.get("achievements",[])
+                ach_html = "".join(
+                    f'<div style="padding:6px 0;border-bottom:1px solid #21262D">'
+                    f'<span style="color:#D29922;margin-right:8px">▸</span>'
+                    f'<span style="color:#C9D1D9;font-size:.87rem">{a[:120]}</span>'
+                    f'</div>' for a in achievements[:6]
+                ) if achievements else '<span style="color:#484F58;font-size:.83rem;font-style:italic">Not extracted</span>'
+                st.markdown(f'<div class="card"><span class="sec">🏆 Achievements</span>{ach_html}</div>',
+                            unsafe_allow_html=True)
+
             with r:
                 st.markdown(
                     f'<div class="card">'

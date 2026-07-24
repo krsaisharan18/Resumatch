@@ -99,14 +99,16 @@ def extract_text(path):
 
 def extract_hyperlinks_from_pdf(path):
     """pdfplumber text extraction misses hyperlinks that show as icons/buttons.
-    Pull them directly from page annotations."""
+    Pull them directly from page annotations. Includes mailto: links since the
+    visible text next to an email icon is often just the icon glyph itself,
+    with the real address only present in the link target."""
     links = []
     try:
         with pdfplumber.open(path) as pdf:
             for page in pdf.pages:
                 for annot in (page.annots or []):
                     uri = annot.get("uri") or annot.get("URI") or ""
-                    if uri and uri.startswith("http"):
+                    if uri and (uri.startswith("http") or uri.startswith("mailto:")):
                         links.append(uri)
     except Exception:
         pass
@@ -120,7 +122,7 @@ def extract_hyperlinks_from_docx(path):
         for rel in doc.part.rels.values():
             if "hyperlink" in rel.reltype.lower():
                 target = rel._target
-                if isinstance(target, str) and target.startswith("http"):
+                if isinstance(target, str) and (target.startswith("http") or target.startswith("mailto:")):
                     links.append(target)
     except Exception:
         pass
@@ -134,9 +136,27 @@ def get_extra_urls(path):
 
 # ── contact extractors ───────────────────────────────────────────────────────
 
+# PDF icon fonts (FontAwesome-style) often extract as literal ligature words glued
+# directly onto the following text with no space, e.g. "Envelopejohn@gmail.com" or
+# "MailContactjohn@x.com". Strip these known icon-label prefixes off the local part.
+_EMAIL_ICON_PREFIXES = [
+    "envelope", "email", "mail", "contactmail", "gmailicon", "phone-alt", "phonealt",
+    "mobile", "contact", "linkedin", "github", "website", "portfolio",
+    "location", "address", "leetcode",
+]
+
 def extract_email(text):
-    m = re.search(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", text)
-    return m.group(0) if m else None
+    for m in re.finditer(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}", text):
+        local, domain = m.group(0).split("@", 1)
+        low = local.lower()
+        for prefix in _EMAIL_ICON_PREFIXES:
+            if low.startswith(prefix) and len(low) > len(prefix):
+                local = local[len(prefix):]
+                low = local.lower()
+        local = local.lstrip("._-")
+        if local:
+            return f"{local}@{domain}"
+    return None
 
 def extract_phone(text):
     m = re.search(
@@ -247,7 +267,8 @@ SECTION_HEADERS = {
     "experience":     r"(?i)^\s*(experience|employment|work\s*history|career|internship|positions?|roles?|professional\s*background)\s*$",
     "skills":         r"(?i)^\s*(skills?|technical\s*skills?|competencies|technologies|tools|languages|frameworks?|core\s*skills?)\s*$",
     "projects":       r"(?i)^\s*(projects?|project\s*work|portfolio|side\s*projects?|personal\s*projects?|academic\s*projects?|key\s*projects?|notable\s*projects?|selected\s*projects?)\s*$",
-    "certifications": r"(?i)^\s*(certif\w*(\s*(&|and)\s*accomplishments)?|licenses?|credentials?|courses?|training|achievements?|awards?|honours?|academic\s*and\s*extracurricular\s*achievements?)\s*$",
+    "certifications": r"(?i)^\s*(certif\w*(\s*(&|and)\s*accomplishments)?|licenses?|credentials?|courses?|training)\s*$",
+    "achievements":   r"(?i)^\s*(achievements?|awards?|honours?|honors?|accomplishments?|academic\s*and\s*extracurricular\s*achievements?)\s*$",
     "other_headers":  r"(?i)^\s*(extra[\s\-]*curricul\w*(\s*(&|and)?\s*(activities|leadership))?|activities|leadership|languages?\s*known|language\s*proficiency|interests?|hobbies)\s*$",
 }
 
@@ -447,13 +468,19 @@ def extract_projects(text, full_text=""):
 
     return entries[:12]
 
-def extract_certifications(text):
+def _extract_bullet_lines(text):
     entries = []
     for line in text.splitlines():
         line = line.strip().lstrip("•-* ")
         if len(line) >= 6:
             entries.append(line)
     return entries[:20]
+
+def extract_certifications(text):
+    return _extract_bullet_lines(text)
+
+def extract_achievements(text):
+    return _extract_bullet_lines(text)
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
@@ -477,6 +504,7 @@ def parse_resume(file_path):
         "experience":     extract_experience(sections.get("experience","") or ""),
         "projects":       extract_projects(sections.get("projects","") or "", raw_text),
         "certifications": extract_certifications(sections.get("certifications","") or ""),
+        "achievements":    extract_achievements(sections.get("achievements","") or ""),
         "summary":        sections.get("summary",""),
         "organisations":  extract_orgs_spacy(raw_text),
     }
