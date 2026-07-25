@@ -1,4 +1,4 @@
-import re, spacy, pdfplumber, docx
+import re, spacy, pdfplumber, docx, datetime
 from pathlib import Path
 
 SKILLS_DB = [
@@ -476,6 +476,85 @@ def _extract_bullet_lines(text):
             entries.append(line)
     return entries[:20]
 
+_MONTH_NAME_RE = (r"Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+                   r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?")
+
+# "Jan 2024 – Present", "June 2025 - April 2026"
+_DATE_RANGE_TEXT_RE = re.compile(
+    rf"(?P<smon>{_MONTH_NAME_RE})?\.?\s*(?P<syear>\d{{4}})\s*[-–—]\s*"
+    rf"(?:(?P<emon>{_MONTH_NAME_RE})?\.?\s*(?P<eyear>\d{{4}})|(?P<present>Present|Current))",
+    re.I)
+# "08/2023 – Present", "01/2024 - 06/2025"
+_DATE_RANGE_NUM_RE = re.compile(
+    r"(?P<smo>\d{1,2})/(?P<sy>\d{4})\s*[-–—]\s*"
+    r"(?:(?P<emo>\d{1,2})/(?P<ey>\d{4})|(?P<present2>Present|Current))", re.I)
+
+_MONTH_NUM = {"jan":1,"feb":2,"mar":3,"apr":4,"may":5,"jun":6,
+              "jul":7,"aug":8,"sep":9,"oct":10,"nov":11,"dec":12}
+
+def _month_num(name):
+    if not name:
+        return 1
+    return _MONTH_NUM.get(name.strip()[:3].lower(), 1)
+
+def estimate_total_experience_years(text):
+    """Sums up all 'start – end' date ranges found in the experience section
+    into a single total-years figure, matching the spec's `experience_years`
+    field. Overlapping ranges are simply summed (not deduplicated) — a
+    reasonable approximation for a rule-based, non-LLM pipeline."""
+    if not text or not text.strip():
+        return 0.0
+    today = datetime.date.today()
+    total_months = 0
+
+    for m in _DATE_RANGE_TEXT_RE.finditer(text):
+        sy, smo = int(m.group("syear")), _month_num(m.group("smon"))
+        if m.group("present"):
+            ey, emo = today.year, today.month
+        elif m.group("eyear"):
+            ey, emo = int(m.group("eyear")), _month_num(m.group("emon"))
+        else:
+            continue
+        months = (ey * 12 + emo) - (sy * 12 + smo) + 1
+        if 0 < months < 600:
+            total_months += months
+
+    for m in _DATE_RANGE_NUM_RE.finditer(text):
+        sy, smo = int(m.group("sy")), int(m.group("smo"))
+        if m.group("present2"):
+            ey, emo = today.year, today.month
+        elif m.group("ey"):
+            ey, emo = int(m.group("ey")), int(m.group("emo"))
+        else:
+            continue
+        months = (ey * 12 + emo) - (sy * 12 + smo) + 1
+        if 0 < months < 600:
+            total_months += months
+
+    return round(total_months / 12, 1)
+
+# Fields a "complete" resume extraction is expected to populate. Used to score
+# how much of the structured JSON output actually got filled in, per the
+# spec's "JSON structure completeness" evaluation metric.
+_COMPLETENESS_FIELDS = [
+    "name","email","phone","education","skills","experience",
+    "projects","certifications",
+]
+
+def json_completeness_score(parsed):
+    """Returns (score 0-100, populated_fields, total_fields) — the fraction
+    of expected top-level fields that came back non-empty."""
+    populated = 0
+    for f in _COMPLETENESS_FIELDS:
+        v = parsed.get(f)
+        if isinstance(v, (list, str)):
+            if len(v) > 0:
+                populated += 1
+        elif v not in (None, "", 0):
+            populated += 1
+    total = len(_COMPLETENESS_FIELDS)
+    return round(populated / total * 100, 1), populated, total
+
 def extract_certifications(text):
     return _extract_bullet_lines(text)
 
@@ -492,7 +571,7 @@ def parse_resume(file_path):
     contact_corpus = raw_text + "\n" + "\n".join(hyperlinks)
 
     sections  = split_sections(raw_text)
-    return {
+    parsed = {
         "raw_text":       raw_text,
         "name":           extract_name_spacy(raw_text),
         "email":          extract_email(contact_corpus),
@@ -502,9 +581,14 @@ def parse_resume(file_path):
         "skills":         extract_skills(raw_text),
         "education":      extract_education(sections.get("education","") or raw_text),
         "experience":     extract_experience(sections.get("experience","") or ""),
+        "experience_years": estimate_total_experience_years(sections.get("experience","") or raw_text),
         "projects":       extract_projects(sections.get("projects","") or "", raw_text),
         "certifications": extract_certifications(sections.get("certifications","") or ""),
         "achievements":    extract_achievements(sections.get("achievements","") or ""),
         "summary":        sections.get("summary",""),
         "organisations":  extract_orgs_spacy(raw_text),
     }
+    score, populated, total = json_completeness_score(parsed)
+    parsed["json_completeness_pct"] = score
+    parsed["json_completeness_fields"] = f"{populated}/{total}"
+    return parsed
