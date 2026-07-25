@@ -1,4 +1,4 @@
-import os, sys, time
+import os, sys
 import streamlit as st
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -292,9 +292,7 @@ with tab1:
             st.error("Provide a job description.")
         else:
             with st.spinner("Extracting with spaCy + Regex…"):
-                _t0 = time.time()
                 tmp = save_upload(resume_file); parsed = parse_resume(tmp); os.unlink(tmp)
-                processing_time_ms = round((time.time() - _t0) * 1000, 1)
             with st.spinner("Computing TF-IDF cosine similarity…"):
                 raw = parsed.get("raw_text","")
                 scores = candidate_score(raw, parsed.get("skills",[]), jd_text,
@@ -312,20 +310,6 @@ with tab1:
                 f'font-weight:700;font-size:.85rem;{grade_style(g)}">{g}</span>'
                 f'<span class="kpi-lbl">Match Grade</span>'
                 f'</div>', unsafe_allow_html=True)
-
-            st.write("")
-            q1,q2,q3,q4 = st.columns(4)
-            with q1: st.markdown(kpi(scores["skill_relevance_label"], "Skill Relevance", "#3FB950"), unsafe_allow_html=True)
-            with q2: st.markdown(kpi(scores["domain_resume"], "Candidate Domain", "#58A6FF"), unsafe_allow_html=True)
-            with q3: st.markdown(kpi(f'{parsed.get("experience_years",0):.1f} yrs', "Total Experience", "#D29922"), unsafe_allow_html=True)
-            with q4: st.markdown(kpi(f'{parsed.get("json_completeness_pct",0):.0f}%', "JSON Completeness", "#A371F7"), unsafe_allow_html=True)
-            st.markdown(
-                f'<p style="color:#484F58;font-size:.75rem;margin-top:2px">'
-                f'Parsed in {processing_time_ms:.0f} ms · '
-                f'{parsed.get("json_completeness_fields","")} core fields populated · '
-                f'JD domain: {scores["domain_jd"]}'
-                f'{" (matches candidate domain)" if scores["domain_match"] else ""}'
-                f'</p>', unsafe_allow_html=True)
 
             st.write("")
             ch1,ch2,ch3 = st.columns([1.1,1.1,1.4])
@@ -502,34 +486,24 @@ with tab2:
         else:
             cands = []
             prog = st.progress(0, text="Parsing resumes…")
-            total_parse_ms = 0.0
             for i,f in enumerate(multi_files):
                 prog.progress((i+1)/len(multi_files), text=f"Parsing {f.name}…")
-                _t0 = time.time()
                 tmp = save_upload(f); p = parse_resume(tmp); os.unlink(tmp)
-                total_parse_ms += (time.time() - _t0) * 1000
                 cands.append({"name":p.get("name") or f.name, "email":p.get("email") or "—",
                                "resume_text":p.get("raw_text",""), "skills":p.get("skills",[]),
-                               "filename":f.name, "experience_years":p.get("experience_years",0),
-                               "json_completeness_pct":p.get("json_completeness_pct",0)})
+                               "filename":f.name})
             prog.empty()
             ranked = rank_candidates(cands, jd_multi)
 
             st.markdown('<div style="height:16px"></div>', unsafe_allow_html=True)
             st.plotly_chart(ranking_bar(ranked), use_container_width=True)
             st.markdown('<span class="sec-title">Ranking Table</span>', unsafe_allow_html=True)
-            st.markdown(f'<p style="color:#484F58;font-size:.75rem">'
-                        f'Parsed {len(multi_files)} resumes in {total_parse_ms:.0f} ms total '
-                        f'({total_parse_ms/max(len(multi_files),1):.0f} ms avg)</p>',
-                        unsafe_allow_html=True)
 
             import pandas as pd
             df = pd.DataFrame([{
                 "Rank": f"#{r['rank']}", "Candidate": r["name"], "Email": r["email"],
                 "Score": f"{r['composite_score']:.1f}%", "Cosine": f"{r['cosine_similarity']:.1f}%",
                 "Skills": f"{r['skill_match_pct']:.1f}%", "Grade": r["match_grade"],
-                "Relevance": r["skill_relevance_label"], "Domain": r["domain_resume"],
-                "Exp (yrs)": r.get("experience_years", 0), "JSON %": r.get("json_completeness_pct", 0),
                 "Matched": len(r["matched_skills"]), "Missing": len(r["missing_skills"])
             } for r in ranked])
             st.dataframe(df, use_container_width=True, hide_index=True)
@@ -574,35 +548,18 @@ with tab3:
             st.error("Upload a resume first.")
         else:
             with st.spinner("Running NLP pipeline…"):
-                _t0 = time.time()
                 tmp = save_upload(mf); parsed = parse_resume(tmp); os.unlink(tmp)
-                processing_time_ms = round((time.time() - _t0) * 1000, 1)
             predicted = parsed.get("skills",[])
             gt = ([s.strip().lower() for s in gt_input.split(",") if s.strip()]
                   if gt_input.strip() else None)
             metrics = skill_extraction_metrics(predicted, gt)
-            has_ground_truth = gt is not None
-
-            if not has_ground_truth:
-                st.info("No ground truth provided — these numbers compare extracted skills "
-                        "against the full skills vocabulary, not a hand-labeled correct answer. "
-                        "For a true accuracy measurement, list the skills that are actually on "
-                        "this resume in the box above.", icon="ℹ️")
 
             st.write("")
             p1,p2,p3,p4 = st.columns(4)
-            lbl_p = "Precision" if has_ground_truth else "Vocab Precision"
-            lbl_r = "Recall" if has_ground_truth else "Vocab Recall"
-            lbl_f = "F1 Score" if has_ground_truth else "Vocab F1"
-            with p1: st.markdown(kpi(f'{metrics["precision"]*100:.1f}%', lbl_p, "#58A6FF"), unsafe_allow_html=True)
-            with p2: st.markdown(kpi(f'{metrics["recall"]*100:.1f}%', lbl_r, "#3FB950"), unsafe_allow_html=True)
-            with p3: st.markdown(kpi(f'{metrics["f1_score"]*100:.1f}%', lbl_f, "#D29922"), unsafe_allow_html=True)
+            with p1: st.markdown(kpi(f'{metrics["precision"]*100:.1f}%', "Precision", "#58A6FF"), unsafe_allow_html=True)
+            with p2: st.markdown(kpi(f'{metrics["recall"]*100:.1f}%', "Recall", "#3FB950"), unsafe_allow_html=True)
+            with p3: st.markdown(kpi(f'{metrics["f1_score"]*100:.1f}%', "F1 Score", "#D29922"), unsafe_allow_html=True)
             with p4: st.markdown(kpi(len(predicted), "Skills Extracted", "#A371F7"), unsafe_allow_html=True)
-            st.markdown(f'<p style="color:#484F58;font-size:.75rem">'
-                        f'Parsed in {processing_time_ms:.0f} ms · '
-                        f'JSON completeness: {parsed.get("json_completeness_pct",0):.0f}% '
-                        f'({parsed.get("json_completeness_fields","")})</p>',
-                        unsafe_allow_html=True)
 
             st.write("")
             r1,r2 = st.columns([1,1.3], gap="large")

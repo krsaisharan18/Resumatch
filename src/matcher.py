@@ -42,58 +42,6 @@ def skill_extraction_metrics(predicted_skills, ground_truth_skills=None):
     if ground_truth_skills is None: ground_truth_skills = SKILLS_DB
     return compute_prf(predicted_skills, ground_truth_skills)
 
-def relevance_label(ratio):
-    """Categorical skill-relevance label, matching the spec's qualitative
-    metric (e.g. 'Candidate A: Medium', 'Candidate B: High')."""
-    if ratio >= 0.70: return "High"
-    if ratio >= 0.40: return "Medium"
-    return "Low"
-
-# Rough domain buckets used only to give a human-readable "what kind of role
-# does this skill-set point to" label — not a rigorous classifier, but useful
-# for the spec's qualitative "domain alignment" metric.
-DOMAIN_BUCKETS = {
-    "Web Development": {
-        "react","angular","vue","svelte","next.js","node.js","express","html","css",
-        "javascript","typescript","django","flask","php","laravel","rails","tailwind",
-        "bootstrap","jquery","asp.net",
-    },
-    "Data / Machine Learning": {
-        "machine learning","deep learning","tensorflow","pytorch","scikit-learn",
-        "pandas","numpy","nlp","natural language processing","computer vision",
-        "xgboost","lightgbm","spacy","nltk","opencv","transformers","cnn","rnn","lstm",
-        "random forest",
-    },
-    "AI / LLM & GenAI": {
-        "llm","large language model","generative ai","rag",
-        "retrieval augmented generation","langchain","langgraph","mcp",
-        "model context protocol","ollama","huggingface","prompt engineering",
-        "openai","gemini","mistral","llama","embeddings","vector database","faiss",
-        "pinecone","chromadb",
-    },
-    "Mobile Development": {"flutter","dart","kotlin","swift"},
-    "DevOps / Cloud": {
-        "docker","kubernetes","k8s","aws","azure","gcp","google cloud","terraform",
-        "ansible","jenkins","ci/cd","github actions",
-    },
-    "Backend / Systems": {
-        "fastapi","spring","microservices","rest","restful","grpc","sql","mysql",
-        "postgresql","mongodb","redis","sqlalchemy","orm","c++","c#","c","go","golang",
-        "rust",
-    },
-    "Blockchain": {"solidity","hardhat","blockchain","smart contracts"},
-}
-
-def classify_domain(skills):
-    """Pick the domain bucket with the most overlapping skills; falls back to
-    'General / Unclassified' if nothing matches."""
-    skill_set = set(s.lower() for s in skills)
-    scores = {d: len(skill_set & kws) for d, kws in DOMAIN_BUCKETS.items()}
-    best = max(scores, key=scores.get)
-    if scores[best] == 0:
-        return "General / Unclassified"
-    return best
-
 def _grade(score):
     if score>=0.80: return "Excellent"
     elif score>=0.65: return "Strong"
@@ -107,17 +55,10 @@ def candidate_score(resume_text, resume_skills, jd_text, weights=None):
     skill_data = match_skills(resume_skills, jd_text)
     skill_r    = skill_data["skill_match_ratio"]
     composite  = weights["cosine"]*cosine + weights["skill"]*skill_r
-    domain_resume = classify_domain(resume_skills)
-    domain_jd     = classify_domain(skill_data["jd_skills"])
     return {"cosine_similarity":round(cosine*100,2),
             "skill_match_pct":round(skill_r*100,2),
             "composite_score":round(composite*100,2),
-            "match_grade":_grade(composite),
-            "skill_relevance_label": relevance_label(skill_r),
-            "domain_resume": domain_resume,
-            "domain_jd": domain_jd,
-            "domain_match": domain_resume == domain_jd and domain_resume != "General / Unclassified",
-            **skill_data}
+            "match_grade":_grade(composite), **skill_data}
 
 def rank_candidates(candidates, jd_text):
     ranked = []
