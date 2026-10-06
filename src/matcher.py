@@ -1,7 +1,7 @@
 import re
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from src.resume_parser import extract_skills, SKILLS_DB
+from src.resume_parser import extract_skills, SKILLS_DB, canonicalize_skill
 
 def clean_text(text):
     text = re.sub(r"[^\w\s]"," ",text.lower())
@@ -27,8 +27,11 @@ def match_skills(resume_skills, jd_text):
             "extra_skills": extra, "skill_match_ratio": len(matched)/max(len(jd_set),1)}
 
 def compute_prf(predicted, ground_truth):
-    pred_set = set(str(x).lower().strip() for x in predicted)
-    gt_set   = set(str(x).lower().strip() for x in ground_truth)
+    # Canonicalize both sides through SKILL_ALIASES so e.g. a ground-truth "cpp"
+    # matches a predicted "c++", and "ReactJS" matches "react", instead of being
+    # scored as a false negative purely because of wording.
+    pred_set = set(canonicalize_skill(x) for x in predicted)
+    gt_set   = set(canonicalize_skill(x) for x in ground_truth)
     tp = len(pred_set & gt_set)
     fp = len(pred_set - gt_set)
     fn = len(gt_set - pred_set)

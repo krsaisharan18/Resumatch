@@ -2,69 +2,274 @@ import re, spacy, pdfplumber, docx
 from pathlib import Path
 
 SKILLS_DB = [
+    # -- programming languages --
     "python","java","javascript","typescript","c++","c#","c","ruby","go","golang",
-    "rust","swift","kotlin","scala","r","matlab","perl","php","bash","shell","dart",
-    "html","css","react","angular","vue","svelte","next.js","tailwind","bootstrap",
-    "jquery","webpack","sass","node.js","django","flask","fastapi","spring","express",
-    "rails","laravel","asp.net","graphql","rest","restful","grpc",
+    "rust","swift","kotlin","scala","r","matlab","perl","php","bash","shell",
+    "powershell","dart","lua","haskell","elixir","erlang","clojure","groovy",
+    "objective-c","assembly","fortran","cobol","vb.net","visual basic","delphi",
+    "julia","f#","ocaml","solidity","vhdl","verilog","sas","abap","apex",
+
+    # -- web frontend --
+    "html","css","html5","css3","react","angular","angularjs","vue","svelte",
+    "next.js","nuxt.js","remix","gatsby","tailwind","tailwind css","bootstrap",
+    "material ui","mui","chakra ui","ant design","jquery","webpack","vite",
+    "parcel","rollup","babel","sass","scss","less","styled-components","redux",
+    "redux toolkit","mobx","zustand","recoil","pwa","web components","three.js",
+    "d3.js","chart.js","framer motion","storybook","web accessibility","wcag",
+    "responsive design","cross-browser testing","ajax","json","xml","web sockets",
+
+    # -- backend / frameworks --
+    "node.js","django","django rest framework","flask","fastapi","spring",
+    "spring boot","express","express.js","nestjs","rails","ruby on rails",
+    "laravel","symfony","asp.net","asp.net core",".net",".net core","gin",
+    "fiber","echo","actix","axum","phoenix","koa","hapi","strapi","graphql",
+    "apollo","rest","restful","grpc","soap","websocket","microservices",
+    "serverless","api gateway","api design","openapi","swagger",
+
+    # -- databases --
+    "sql","mysql","postgresql","sqlite","mongodb","cassandra","redis",
+    "elasticsearch","dynamodb","oracle","oracle db","microsoft sql server",
+    "mariadb","couchdb","neo4j","firestore","supabase","cockroachdb",
+    "influxdb","timescaledb","realm","database design","database normalization",
+    "indexing","query optimization","stored procedures","plsql","t-sql",
+
+    # -- data engineering / big data --
+    "hadoop","spark","pyspark","apache spark","kafka","apache kafka","airflow",
+    "apache airflow","dbt","snowflake","bigquery","redshift","databricks",
+    "hive","pig","flink","apache flink","nifi","apache nifi","luigi","etl",
+    "elt","data pipeline","data warehousing","data modeling","data lake",
+    "data engineering","stream processing","batch processing",
+
+    # -- cloud / devops / infra --
+    "aws","azure","gcp","google cloud","amazon web services","microsoft azure",
+    "ec2","s3","lambda","cloudformation","eks","ecs","fargate","azure devops",
+    "docker","kubernetes","k8s","helm","terraform","pulumi","ansible","puppet",
+    "chef","vagrant","jenkins","ci/cd","github actions","gitlab ci","circleci",
+    "travis ci","argo cd","prometheus","grafana","datadog","splunk","new relic",
+    "nagios","elk stack","logstash","kibana","nginx","apache","haproxy","istio",
+    "linux","unix","windows server","shell scripting","infrastructure as code",
+    "site reliability engineering","sre","load balancing","cloud architecture",
+    "cloud security","vpc","iam",
+
+    # -- version control / collaboration --
+    "git","github","gitlab","bitbucket","svn","mercurial","jira","confluence",
+    "trello","asana","notion","slack","agile","scrum","kanban","waterfall",
+    "devops","devsecops","tdd","bdd","oop","object oriented programming",
+    "functional programming","design patterns","clean code","solid principles",
+    "code review","pair programming","version control",
+
+    # -- data science / ml / ai --
     "machine learning","deep learning","nlp","natural language processing",
-    "computer vision","tensorflow","pytorch","keras","scikit-learn","pandas","numpy",
-    "scipy","matplotlib","seaborn","plotly","xgboost","lightgbm","spacy","nltk",
-    "opencv","transformers","sql","mysql","postgresql","sqlite","mongodb","cassandra",
-    "redis","elasticsearch","hadoop","spark","kafka","airflow","dbt","snowflake",
-    "bigquery","redshift","databricks","aws","azure","gcp","google cloud","docker",
-    "kubernetes","k8s","terraform","ansible","jenkins","ci/cd","github actions",
-    "linux","unix","nginx","git","github","gitlab","jira","agile","scrum","devops",
-    "microservices","api","tdd","oop","tableau","power bi","looker","grafana",
-    "communication","leadership","teamwork","problem solving","project management",
-    # -- generative AI / LLM stack (common in current student resumes) --
-    "llm","large language model","generative ai","rag",
-    "retrieval augmented generation","langchain","langgraph","mcp",
-    "model context protocol","ollama","huggingface","hugging face","faiss",
-    "pinecone","chromadb","vector database","vector search","embeddings",
-    "prompt engineering","fine-tuning","openai","gemini","mistral","llama",
-    "cnn","rnn","lstm","random forest",
-    # -- web / backend extras --
-    "socket.io","websocket","jwt","oauth","sqlalchemy","orm","pydantic",
-    "postman","vs code","figma","vercel","firebase","render","heroku",
-    "solidity","hardhat","blockchain","smart contracts","flutter",
-    "cosine similarity","tf-idf",
+    "computer vision","reinforcement learning","tensorflow","pytorch","keras",
+    "scikit-learn","pandas","numpy","scipy","matplotlib","seaborn","plotly",
+    "xgboost","lightgbm","catboost","spacy","nltk","gensim","opencv",
+    "transformers","statistics","probability","linear algebra","calculus",
+    "data analysis","data visualization","data cleaning","data mining",
+    "feature engineering","time series analysis","a/b testing","hypothesis testing",
+    "bayesian statistics","regression analysis","classification","clustering",
+    "cnn","rnn","lstm","gru","gan","autoencoder","transformer architecture",
+    "random forest","decision trees","svm","support vector machine",
+    "gradient boosting","ensemble learning","dimensionality reduction","pca",
+    "anomaly detection","recommendation systems","mlops","model deployment",
+    "model monitoring","mlflow","kubeflow","sagemaker","vertex ai","azure ml",
+    "weights and biases","wandb","onnx","tensorrt","quantization",
+
+    # -- generative ai / llm stack --
+    "llm","large language model","generative ai","genai","rag",
+    "retrieval augmented generation","langchain","langgraph","llamaindex",
+    "mcp","model context protocol","ollama","huggingface","hugging face",
+    "faiss","pinecone","chromadb","weaviate","milvus","qdrant",
+    "vector database","vector search","embeddings","prompt engineering",
+    "fine-tuning","lora","qlora","rlhf","openai","openai api","chatgpt",
+    "gemini","mistral","llama","claude","anthropic api","agentic ai",
+    "ai agents","multi-agent systems","autogpt","crewai","semantic kernel",
+    "cosine similarity","tf-idf","bag of words","word2vec","bert","gpt",
+    "named entity recognition","ner","sentiment analysis","text classification",
+    "topic modeling","speech recognition","text to speech","diffusion models",
+    "stable diffusion","image generation",
+
+    # -- bi / analytics tools --
+    "tableau","power bi","looker","looker studio","qlik","excel",
+    "advanced excel","google sheets","vba","google analytics","mixpanel",
+    "amplitude","segment","metabase","superset",
+
+    # -- mobile development --
+    "flutter","react native","swiftui","android","android studio","ios",
+    "xcode","kotlin multiplatform","jetpack compose","xamarin","ionic",
+    "cordova","mobile app development",
+
+    # -- security --
+    "cybersecurity","penetration testing","ethical hacking","network security",
+    "application security","owasp","vulnerability assessment","siem",
+    "cryptography","oauth","oauth2","jwt","saml","sso","ssl/tls","firewall",
+    "ids/ips","burp suite","metasploit","wireshark","nmap","kali linux",
+    "identity and access management","zero trust",
+
+    # -- testing / qa --
+    "unit testing","integration testing","end to end testing","selenium",
+    "cypress","playwright","jest","mocha","chai","pytest","junit","testng",
+    "postman","soapui","load testing","jmeter","gatling","manual testing",
+    "automation testing","test case design","quality assurance","qa",
+
+    # -- blockchain / web3 --
+    "blockchain","smart contracts","hardhat","truffle","web3.js",
+    "ethers.js","ethereum","web3","nft","defi","cryptocurrency","metamask",
+
+    # -- other tools / misc --
+    "vs code","visual studio","intellij","eclipse","figma","sketch",
+    "adobe xd","adobe photoshop","adobe illustrator","canva","vercel",
+    "netlify","firebase","heroku","render","digitalocean","linode","wordpress",
+    "shopify","webflow","zapier","power automate","sap","salesforce","servicenow",
+    "unity","unreal engine","game development","3d modeling","blender","autocad",
+    "word","powerpoint","excel vba","microsoft office","google workspace",
+    "arduino","raspberry pi","iot","embedded systems","robotics","ros",
+    "matlab simulink","plc programming","cad",
+
+    # -- project management / methodology --
+    "project management","product management","program management","pmp",
+    "prince2","six sigma","lean","okr","roadmapping","stakeholder management",
+    "risk management","budgeting","resource planning","sprint planning",
+
+    # -- soft skills --
+    "communication","leadership","teamwork","problem solving",
+    "critical thinking","time management","adaptability","collaboration",
+    "creativity","decision making","conflict resolution","negotiation",
+    "presentation skills","public speaking","mentoring","analytical skills",
+    "attention to detail","work ethic","self motivated","interpersonal skills",
+    "emotional intelligence","customer service","multitasking",
+
+    # -- api / architecture --
+    "api","event driven architecture","domain driven design",
+    "distributed systems","system design","high availability","scalability",
+    "caching","message queues","rabbitmq","activemq","zeromq","pub/sub",
 ]
 
 # Aliases/synonyms that resolve to a canonical SKILLS_DB entry. This lets a resume
 # saying "ML" and a JD saying "Machine Learning" match instead of silently missing
 # each other because they used different phrasing for the same skill.
 SKILL_ALIASES = {
-    "ml": "machine learning",
-    "dl": "deep learning",
-    "js": "javascript",
-    "ts": "typescript",
-    "nodejs": "node.js",
-    "node": "node.js",
-    "expressjs": "express",
-    "reactjs": "react",
-    "react.js": "react",
-    "vuejs": "vue",
-    "vue.js": "vue",
-    "nextjs": "next.js",
-    "postgres": "postgresql",
-    "mongo": "mongodb",
-    "genai": "generative ai",
-    "gen ai": "generative ai",
-    "llms": "llm",
-    "oops": "oop",
-    "object oriented programming": "oop",
-    "object-oriented programming": "oop",
-    "restful api": "rest",
-    "restful apis": "rest",
-    "rest api": "rest",
-    "rest apis": "rest",
-    "ci cd": "ci/cd",
-    "cicd": "ci/cd",
-    "socket io": "socket.io",
-    "websockets": "websocket",
-    "vscode": "vs code",
-    "hugging face": "huggingface",
+    # -- languages / core --
+    "ml": "machine learning", "dl": "deep learning",
+    "js": "javascript", "ts": "typescript", "cpp": "c++", "c plus plus": "c++",
+    "csharp": "c#", "c sharp": "c#", "py": "python", "golang lang": "golang",
+    "objective c": "objective-c", "vb": "visual basic", "powershell scripting": "powershell",
+
+    # -- frontend --
+    "nodejs": "node.js", "node": "node.js", "expressjs": "express",
+    "express js": "express", "reactjs": "react", "react.js": "react",
+    "react js": "react", "vuejs": "vue", "vue.js": "vue", "vue js": "vue",
+    "nextjs": "next.js", "next js": "next.js", "nuxtjs": "nuxt.js",
+    "angular.js": "angularjs", "angular 2+": "angular", "tailwindcss": "tailwind",
+    "tailwind.css": "tailwind css", "material-ui": "mui", "materialui": "mui",
+    "scss/sass": "scss", "html/css": "html", "web development": "web components",
+    "single page application": "pwa", "spa": "pwa",
+
+    # -- backend --
+    "nest.js": "nestjs", "ruby on rails (ror)": "ruby on rails", "ror": "ruby on rails",
+    "dotnet": ".net", "dot net": ".net", "asp.net mvc": "asp.net",
+    "restful api": "rest", "restful apis": "rest", "rest api": "rest",
+    "rest apis": "rest", "web api": "api", "apis": "api",
+    "django rest": "django rest framework", "drf": "django rest framework",
+
+    # -- databases --
+    "postgres": "postgresql", "psql": "postgresql", "mongo": "mongodb",
+    "mongo db": "mongodb", "mssql": "microsoft sql server",
+    "sql server": "microsoft sql server", "ms sql": "microsoft sql server",
+    "oracle database": "oracle db", "elastic search": "elasticsearch",
+    "dynamo db": "dynamodb", "firebase firestore": "firestore",
+    "pl/sql": "plsql", "nosql": "mongodb",
+
+    # -- data / big data --
+    "apache hadoop": "hadoop", "py spark": "pyspark", "apache kafka": "kafka",
+    "apache airflow": "airflow", "apache spark": "spark", "apache hive": "hive",
+    "apache flink": "flink", "apache nifi": "nifi",
+
+    # -- cloud / devops --
+    "amazon web services": "aws", "microsoft azure": "azure",
+    "google cloud platform": "gcp", "amazon ec2": "ec2", "amazon s3": "s3",
+    "aws lambda": "lambda", "ci cd": "ci/cd", "cicd": "ci/cd",
+    "continuous integration": "ci/cd", "continuous deployment": "ci/cd",
+    "github action": "github actions", "gitlab-ci": "gitlab ci",
+    "infra as code": "infrastructure as code", "iac": "infrastructure as code",
+    "k8s cluster": "kubernetes", "docker compose": "docker",
+    "elk": "elk stack", "elastic stack": "elk stack",
+
+    # -- vcs / collab --
+    "git hub": "github", "git lab": "gitlab", "bit bucket": "bitbucket",
+    "jira software": "jira", "oops": "oop", "object oriented programming": "oop",
+    "object-oriented programming": "oop", "fp": "functional programming",
+
+    # -- ml / ai --
+    "scikit learn": "scikit-learn", "sklearn": "scikit-learn",
+    "tensor flow": "tensorflow", "py torch": "pytorch",
+    "computer vision (cv)": "computer vision", "cv": "computer vision",
+    "nlp (natural language processing)": "natural language processing",
+    "natural language processing (nlp)": "natural language processing",
+    "deep neural network": "deep learning", "dnn": "deep learning",
+    "artificial intelligence": "machine learning", "ai": "machine learning",
+    "a/b test": "a/b testing", "ab testing": "a/b testing",
+    "time series": "time series analysis", "ts analysis": "time series analysis",
+    "pca analysis": "pca", "svm classifier": "svm",
+    "support vector machines": "support vector machine",
+    "ml ops": "mlops", "weights & biases": "wandb", "w&b": "wandb",
+
+    # -- genai / llm --
+    "genai": "generative ai", "gen ai": "generative ai", "gen-ai": "generative ai",
+    "llms": "llm", "large language models": "large language model",
+    "retrieval-augmented generation": "retrieval augmented generation",
+    "llama index": "llamaindex", "model context protocol (mcp)": "mcp",
+    "hugging face": "huggingface", "huggingface transformers": "transformers",
+    "vector db": "vector database", "vector dbs": "vector database",
+    "finetuning": "fine-tuning", "fine tuning": "fine-tuning",
+    "gpt-4": "gpt", "gpt4": "gpt", "chat gpt": "chatgpt",
+    "named entity recognition (ner)": "named entity recognition",
+    "sentiment analysis (nlp)": "sentiment analysis",
+
+    # -- bi --
+    "powerbi": "power bi", "power-bi": "power bi", "ms excel": "excel",
+    "microsoft excel": "excel", "google analytics 4": "google analytics", "ga4": "google analytics",
+
+    # -- mobile --
+    "react-native": "react native", "reactnative": "react native",
+    "android dev": "android", "ios dev": "ios", "jetpack": "jetpack compose",
+
+    # -- security --
+    "pen testing": "penetration testing", "pentest": "penetration testing",
+    "pentesting": "penetration testing", "app security": "application security",
+    "network sec": "network security", "infosec": "cybersecurity",
+    "information security": "cybersecurity", "ssl": "ssl/tls", "tls": "ssl/tls",
+    "iam policies": "identity and access management",
+
+    # -- testing --
+    "unit test": "unit testing", "integration test": "integration testing",
+    "e2e testing": "end to end testing", "e2e": "end to end testing",
+    "test automation": "automation testing", "jest.js": "jest",
+
+    # -- blockchain --
+    "web3js": "web3.js", "ethersjs": "ethers.js", "smart contract": "smart contracts",
+
+    # -- misc tools --
+    "vscode": "vs code", "visual studio code": "vs code", "intellij idea": "intellij",
+    "adobe ps": "adobe photoshop", "photoshop": "adobe photoshop",
+    "illustrator": "adobe illustrator", "sql server management studio": "microsoft sql server",
+    "ms word": "word", "unity3d": "unity", "unreal": "unreal engine",
+    "iot devices": "iot", "embedded c": "embedded systems",
+
+    # -- pm / methodology --
+    "project mgmt": "project management", "product mgmt": "product management",
+    "scrum master": "scrum", "agile methodology": "agile", "agile methodologies": "agile",
+    "six-sigma": "six sigma",
+
+    # -- soft skills --
+    "problem-solving": "problem solving", "team work": "teamwork",
+    "time-management": "time management", "critical-thinking": "critical thinking",
+    "self-motivated": "self motivated", "public-speaking": "public speaking",
+    "analytical skill": "analytical skills", "interpersonal skill": "interpersonal skills",
+
+    # -- architecture --
+    "message queue": "message queues", "pub sub": "pub/sub",
+    "event-driven architecture": "event driven architecture",
+    "ddd": "domain driven design", "system design & architecture": "system design",
 }
 
 def _load_spacy():
@@ -256,8 +461,277 @@ def extract_name_spacy(text):
     return None
 
 def extract_orgs_spacy(text):
-    doc = NLP(text[:3000])
-    return list({ent.text.strip() for ent in doc.ents if ent.label_ == "ORG"})
+    """Organisations / institutions only, after filtering spaCy's noisy ORG tags
+    (tech skills, URLs, section headers) -- see extract_resume_entities()."""
+    ents = extract_resume_entities(text)
+    return sorted({e["entity"] for e in ents if e["label"] in ("ORGANIZATION", "INSTITUTION")})
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Resume-aware Named Entity Recognition
+# ------------------------------------------------------------------------------
+# Off-the-shelf spaCy models are trained on news text, so on resumes they tag
+# skills as ORG/PERSON/GPE ("Docker" -> PERSON, "React" -> GPE), phone numbers as
+# DATE, URLs as ORG, and they miss emails / degrees / job titles entirely.
+# extract_resume_entities() keeps spaCy for what it is good at (PERSON, ORG,
+# LOCATION, DATE) but validates every hit, drops technology terms, and adds
+# high-precision rules for EMAIL, PHONE, URL, SKILL, DEGREE, INSTITUTION and
+# JOB_TITLE, then re-labels everything with resume-friendly labels.
+# ══════════════════════════════════════════════════════════════════════════════
+
+_SKILL_TERMS = {s.lower() for s in SKILLS_DB} | set(SKILL_ALIASES)
+
+# Skills that are also ordinary English words / single letters. Only trusted as a
+# SKILL entity when they sit inside the resume's SKILLS section.
+_AMBIGUOUS_SKILLS = {"c","r","go","rest","express","spring","render","node","orm",
+                     "mcp","swift","rails","dart","api","shell","agile"}
+
+_NOISE_WORDS = {
+    "resume","cv","curriculum vitae","education","skills","skill","experience","projects",
+    "project","summary","objective","profile","achievements","certifications","cgpa","gpa",
+    "sgpa","percentage","present","current","contact","email","phone","linkedin","github",
+    "technical skills","work experience","declaration","references","languages","tools",
+    "frameworks","technologies","internship","internships",
+}
+
+_MONTHS = (r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+           r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|"
+           r"Dec(?:ember)?)")
+_DATE_RANGE_RE = re.compile(
+    rf"(?:{_MONTHS}\.?,?\s+)?(?:19|20)\d{{2}}\s*(?:-|–|—|to)\s*"
+    rf"(?:(?:{_MONTHS}\.?,?\s+)?(?:19|20)\d{{2}}|Present|Current|Ongoing|Now)"
+    rf"|{_MONTHS}\.?,?\s+(?:19|20)\d{{2}}"
+    rf"|(?<![\d.])(?:19|20)\d{{2}}(?![\d.])", re.I)
+
+# Job-title vocabulary -- shared by resume JOB_TITLE detection and JD role extraction
+_TITLE_NOUNS = (
+    r"Engineer|Developer|Programmer|Scientist|Analyst|Researcher|Intern|Trainee|Manager|"
+    r"Architect|Consultant|Designer|Administrator|Specialist|Lead|Director|Officer|"
+    r"Associate|Tester|Technician|Strategist|Executive|Coordinator|Evangelist|Advocate|"
+    r"Fellow|Apprentice|Head|Owner|SDE|SWE|Technologist"
+)
+_TITLE_RE = re.compile(
+    rf"\b((?:[A-Z][\w\.\+#/&\-]*\s+){{0,4}}(?:{_TITLE_NOUNS})(?:\s+(?:I{{1,3}}|IV|V|\d))?)\b")
+_TITLE_FILLER = {"a","an","the","our","new","great","passionate","motivated","talented",
+                 "skilled","experienced","highly","dynamic","creative","enthusiastic",
+                 "driven","strong","dedicated","smart","ambitious","proactive","exceptional",
+                 "results-driven","detail-oriented","self-motivated","hands-on","we","are",
+                 "is","looking","for","hiring","seeking","as","and","or","to","of","in",
+                 "at","with","join","us","about","i","am","was","worked","working","the",
+                 "responsibilities","role","position"}
+
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_URL_RE = re.compile(
+    r"(?:https?://)?(?:www\.)?(?:linkedin\.com/in/[\w\-\.%]+|github\.com/[\w\-]+(?:/[\w\-\.]+)?|"
+    r"leetcode\.com/[\w\-/]+|kaggle\.com/[\w\-]+|[\w\-]+\.(?:vercel\.app|netlify\.app|github\.io|"
+    r"streamlit\.app|herokuapp\.com|onrender\.com))", re.I)
+_PHONE_RE = re.compile(r"(?<![\w.])(?:\+?\d{1,3}[\s\-.]?)?(?:\(?\d{2,5}\)?[\s\-.]?)?\d{3,5}[\s\-.]?\d{4,5}(?![\w.])")
+_INSTITUTION_KW = re.compile(r"\b(college|university|institute|school|academy|polytechnic|iit|nit|iiit|iisc)\b", re.I)
+_INSTITUTION_RE = re.compile(
+    r"[A-Z][\w\.&'’\-]*(?:[ \t]+(?:of|for|and|&|the|[A-Z][\w\.&'’\-]*))*?[ \t]+"
+    r"(?:College|University|Institute|School|Academy|Polytechnic)"
+    r"(?:[ \t]+(?:of|for|and|&)[ \t]+[A-Z][\w&]*(?:[ \t]+(?:of|and|&|[A-Z][\w&]*)){0,3})?")
+_DEGREE_ENT_RE = re.compile(
+    r"(?<![A-Za-z0-9])((?:Bachelors?[ \t]+of[ \t]+[A-Z][A-Za-z&]+(?:[ \t][A-Z][A-Za-z&]+){0,2}|"
+    r"Masters?[ \t]+of[ \t]+[A-Z][A-Za-z&]+(?:[ \t][A-Z][A-Za-z&]+){0,2}|"
+    r"B\.?[ \t]?Tech|M\.?[ \t]?Tech|B\.E\.?|M\.E\.?|BE|B\.?Sc\.?|M\.?Sc\.?|MBA|Ph\.?D\.?|BCA|MCA|"
+    r"Bachelors?|Masters?|Diploma)"
+    r"(?:[ \t]+(?:in|of)[ \t]+[A-Z][A-Za-z&]+(?:[ \t][A-Z][A-Za-z&]+){0,3})?)")
+
+
+def _norm_ws(t):
+    return re.sub(r"\s+", " ", t).strip(" ,.;:|-–—•·\t\n")
+
+
+def _is_tech_or_noise(t):
+    low = t.lower()
+    if low in _SKILL_TERMS or low in _NOISE_WORDS:
+        return True
+    # multi-word strings made entirely of tech words ("Machine Learning", "Google Cloud")
+    words = re.findall(r"[a-z0-9\+#\.]+", low)
+    return bool(words) and all(w in _SKILL_TERMS or w in _NOISE_WORDS for w in words)
+
+
+def extract_resume_entities(text, max_chars=8000):
+    """Return a de-duplicated, sorted list of {"entity","label","source"} dicts.
+
+    Labels: PERSON, EMAIL, PHONE, URL, INSTITUTION, ORGANIZATION, LOCATION,
+            DEGREE, JOB_TITLE, DATE, SKILL.
+    """
+    if not text:
+        return []
+    text = text[:max_chars]
+    out, seen = [], set()
+
+    def add(ent, label, source):
+        ent = _norm_ws(ent)
+        if not ent:
+            return
+        key = (ent.lower(), label)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({"entity": ent, "label": label, "source": source})
+
+    lines = [l.strip() for l in text.splitlines()]
+    sections = split_sections(text)
+
+    # ── 1. rule-based, high-precision entities ───────────────────────────────
+    for m in _EMAIL_RE.finditer(text):
+        e = extract_email(m.group(0))
+        if e: add(e, "EMAIL", "Regex")
+
+    url_spans = []
+    for m in _URL_RE.finditer(text.replace("\\", "/")):
+        url_spans.append(m.group(0).lower())
+        add(m.group(0).rstrip("/"), "URL", "Regex")
+    # phone: only from the header/contact area and only if it has 10+ digits
+    head = "\n".join(lines[:15])
+    for m in _PHONE_RE.finditer(head):
+        cand = m.group(0).strip()
+        if len(re.sub(r"\D", "", cand)) >= 10 and not _EMAIL_RE.search(cand):
+            add(cand, "PHONE", "Regex"); break
+
+    inst_spans = []
+    for line in lines:
+        for m in _INSTITUTION_RE.finditer(line):
+            inst_spans.append(m.group(0).lower())
+            add(m.group(0), "INSTITUTION", "Regex")
+        for m in _DEGREE_ENT_RE.finditer(line):
+            add(m.group(1), "DEGREE", "Regex")
+        if len(line.split()) <= 14:
+            for m in _TITLE_RE.finditer(line):
+                words = m.group(1).split()
+                while words and words[0].lower() in _TITLE_FILLER:
+                    words.pop(0)
+                if words and not _is_tech_or_noise(" ".join(words)) and len(words) <= 5:
+                    add(" ".join(words), "JOB_TITLE", "Regex")
+
+    date_spans = []
+    for m in _DATE_RANGE_RE.finditer(text):
+        s = _norm_ws(m.group(0))
+        # skip years that belong to a longer date range already captured / phone digits
+        date_spans.append(s.lower())
+        add(s, "DATE", "Regex")
+
+    skills_sec = (sections.get("skills") or "").lower()
+    for skill in sorted(extract_skills(text)):
+        if skill in _AMBIGUOUS_SKILLS and not re.search(
+                r"(?<![a-z0-9_\-])" + re.escape(skill) + r"(?![a-z0-9_\-])", skills_sec):
+            continue
+        add(skill, "SKILL", "Vocabulary")
+
+    # ── 2. spaCy, validated and re-labelled ──────────────────────────────────
+    doc = NLP(text)
+    for ent in doc.ents:
+        t = _norm_ws(ent.text)
+        low = t.lower()
+        if len(t) < 2 or _is_tech_or_noise(t) or "@" in t or re.search(r"https?:|www\.|\.com|\.io", low):
+            continue
+        if ent.label_ == "PERSON":
+            if _looks_like_name(t) and not any(w in _SKILL_TERMS or w in _NOISE_WORDS
+                                               for w in low.split()):
+                add(t, "PERSON", "spaCy")
+        elif ent.label_ == "ORG":
+            if any(low in s or s in low for s in inst_spans):
+                continue                           # already captured as INSTITUTION
+            if re.fullmatch(r"[\d\W]+", t) or len(t.split()) > 6:
+                continue
+            if _INSTITUTION_KW.search(t):
+                add(t, "INSTITUTION", "spaCy")
+            elif t[0].isupper() and not t.isupper() or len(t) > 4:
+                add(t, "ORGANIZATION", "spaCy")
+        elif ent.label_ in ("GPE", "LOC", "FAC"):
+            if any(low in s for s in inst_spans) or re.search(r"\d", t):
+                continue
+            if t[0].isupper():
+                add(t, "LOCATION", "spaCy")
+        elif ent.label_ == "DATE":
+            if any(low in d or d in low for d in date_spans):
+                continue
+            if re.search(r"(?:19|20)\d{2}", t) and len(re.sub(r"\D", "", t)) < 9:
+                add(t, "DATE", "spaCy")
+        # everything else (CARDINAL, PRODUCT, WORK_OF_ART, NORP, ...) is noise on resumes
+
+    order = {"PERSON":0,"EMAIL":1,"PHONE":2,"URL":3,"INSTITUTION":4,"ORGANIZATION":5,
+             "LOCATION":6,"DEGREE":7,"JOB_TITLE":8,"DATE":9,"SKILL":10}
+    out.sort(key=lambda d: (order.get(d["label"], 99), d["entity"].lower()))
+    return out
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Job role extraction from a Job Description
+# ══════════════════════════════════════════════════════════════════════════════
+
+_JD_LABEL_RE = re.compile(
+    r"(?i)^\W*(?:job\s*title|job\s*role|role|position|designation|title|opening|vacancy|"
+    r"hiring\s*for|post|profile)\s*[:\-–—]\s*(.+)$")
+_JD_PHRASE_RE = re.compile(
+    rf"(?i)(?:looking\s+for|seeking|hiring|searching\s+for|opening\s+for|applications?\s+for|"
+    rf"role\s+of|position\s+of|join\s+(?:us|our\s+team)\s+as|apply\s+for|recruiting)\s+"
+    rf"(?:an?\s+|the\s+)?((?:[\w\.+#/&\-]+\s+){{0,5}}?(?:{_TITLE_NOUNS}))\b")
+_JD_SPLIT_RE = re.compile(r"\s+[-–—|@]\s+|\s*[|•·]\s*|\s+at\s+|\s+in\s+|\s*\(|\s*,\s*|\s*/\s*(?=[A-Z])|\s+for\s+")
+
+
+def _clean_role(raw):
+    r = re.sub(r"(?i)\b(job\s*description|job\s*title|jd)\b\s*[:\-–—]?", "", raw)
+    r = _JD_SPLIT_RE.split(r.strip())[0]
+    r = _norm_ws(r)
+    words = r.split()
+    while words and words[0].lower() in _TITLE_FILLER:
+        words.pop(0)
+    r = " ".join(words)
+    if r.isupper() or r.islower():
+        r = r.title()
+    return r[:60] if 2 <= len(r) else None
+
+
+def extract_job_role(jd_text):
+    """Best-effort job role/title from a job description; None if not detectable.
+
+    Strategy (first hit wins): labelled field ("Job Title: ...") -> heading line
+    that looks like a title -> "we are looking for a ..." phrase -> most frequent
+    title-like phrase in the opening of the JD.
+    """
+    if not jd_text or not jd_text.strip():
+        return None
+    lines = [l.strip() for l in jd_text.splitlines() if l.strip()]
+
+    # 1) labelled field
+    for l in lines[:40]:
+        m = _JD_LABEL_RE.match(l)
+        if m:
+            r = _clean_role(m.group(1))
+            if r and _TITLE_RE.search(r):
+                return r
+
+    # 2) a short heading line near the top that is itself a title
+    for l in lines[:6]:
+        if len(l.split()) <= 10 and not l.endswith("."):
+            m = _TITLE_RE.search(_clean_role(l) or "")
+            if m:
+                r = _clean_role(m.group(1))
+                if r and not _is_tech_or_noise(r):
+                    return r
+
+    # 3) natural-language phrase
+    m = _JD_PHRASE_RE.search(jd_text[:3000])
+    if m:
+        r = _clean_role(m.group(1))
+        if r and not _is_tech_or_noise(r):
+            return r
+
+    # 4) most frequent title-like phrase in the opening of the JD
+    counts = {}
+    for m in _TITLE_RE.finditer(jd_text[:1500]):
+        words = m.group(1).split()
+        while words and words[0].lower() in _TITLE_FILLER:
+            words.pop(0)
+        cand = " ".join(words)
+        if cand and not _is_tech_or_noise(cand):
+            counts[cand] = counts.get(cand, 0) + 1
+    if counts:
+        return max(counts, key=lambda k: (counts[k], len(k)))
+    return None
 
 # ── section splitting ────────────────────────────────────────────────────────
 
@@ -318,6 +792,13 @@ def extract_skills(text):
         pat = r"(?<![a-zA-Z0-9_\-])" + re.escape(alias) + r"(?![a-zA-Z0-9_\-])"
         if re.search(pat, text_lower): found.add(canonical)
     return sorted(found)
+
+def canonicalize_skill(term):
+    """Resolve a raw skill string to its canonical SKILLS_DB form via SKILL_ALIASES,
+    so a ground-truth entry like "cpp" or "ReactJS" matches an extracted "c++" or
+    "react" instead of being scored as a miss just because of wording."""
+    t = re.sub(r"\s+", " ", str(term).strip().lower())
+    return SKILL_ALIASES.get(t, t)
 
 def extract_education(text):
     entries = []

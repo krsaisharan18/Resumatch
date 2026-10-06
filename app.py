@@ -4,7 +4,7 @@ import streamlit as st
 ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path: sys.path.insert(0, ROOT)
 
-from src.resume_parser import parse_resume, SKILLS_DB
+from src.resume_parser import parse_resume, SKILLS_DB, extract_job_role, extract_resume_entities, extract_text
 from src.matcher import candidate_score, skill_extraction_metrics, rank_candidates
 from src.visualizations import (gauge_chart, skill_donut, score_breakdown_bar,
                                  prf_radar, skill_bubble, tfidf_top_terms, ranking_bar)
@@ -201,6 +201,20 @@ def kpi(val, lbl, color):
             f'<span class="kpi-lbl">{lbl}</span>'
             f'</div>')
 
+def role_banner(jd_text):
+    """Job role detected from the JD -- shown right under the resume/JD uploads."""
+    if not (jd_text or "").strip():
+        return
+    role = extract_job_role(jd_text)
+    val = (f'<span style="color:#E6EDF3;font-size:1rem;font-weight:700">{role}</span>' if role else
+           '<span style="color:#484F58;font-size:.85rem;font-style:italic">'
+           'Not detected — add a line like "Job Title: …" to the JD</span>')
+    st.markdown(
+        '<div class="card" style="display:flex;align-items:center;gap:14px;padding:14px 22px;margin:4px 0 0">'
+        '<span style="font-size:1.3rem">💼</span>'
+        '<div><span class="sec" style="margin-bottom:2px">Job Role (from JD)</span>'
+        f'{val}</div></div>', unsafe_allow_html=True)
+
 def grade_style(g):
     if "Excellent" in g: return "background:rgba(63,185,80,.15);color:#3FB950;border:1px solid rgba(63,185,80,.4)"
     if "Strong"    in g: return "background:rgba(88,166,255,.15);color:#58A6FF;border:1px solid rgba(88,166,255,.4)"
@@ -284,6 +298,7 @@ with tab1:
                     tmp = save_upload(jd_file); jd_text = extract_text(tmp); os.unlink(tmp)
                     st.success(f"Loaded: {jd_file.name}")
 
+    role_banner(jd_text)
     st.write("")
     if st.button("🔍  Analyse Resume", key="btn_analyse"):
         if not resume_file:
@@ -433,6 +448,7 @@ with tab1:
 
             with st.expander("📦 Full JSON Output"):
                 export = {k:v for k,v in parsed.items() if k!="raw_text"}
+                export["job_role"] = extract_job_role(jd_text)
                 export["match_analysis"] = scores
                 js = pretty_json(export)
                 st.code(js, language="json")
@@ -477,6 +493,7 @@ with tab2:
                     tmp = save_upload(jd_multi_file); jd_multi = extract_text(tmp); os.unlink(tmp)
                     st.success(f"Loaded: {jd_multi_file.name}")
 
+    role_banner(jd_multi)
     st.write("")
     if st.button("🏆  Rank All Candidates", key="btn_rank"):
         if not multi_files:
@@ -527,20 +544,22 @@ with tab3:
                 'Evaluate Precision, Recall and F1 for spaCy + Regex skill extraction.</p>',
                 unsafe_allow_html=True)
 
-    e1, e2 = st.columns(2, gap="large")
-    with e1:
-        with st.container(border=True):
-            st.markdown('<span class="sec">📎 Resume for Evaluation</span>', unsafe_allow_html=True)
-            mf = st.file_uploader("mf", type=["pdf","docx"], key="mf", label_visibility="collapsed")
-    with e2:
-        with st.container(border=True):
-            st.markdown('<span class="sec">🎯 Ground-Truth Skills (optional)</span>', unsafe_allow_html=True)
-            gt_input = st.text_area("gt", height=90,
-                                    placeholder="python, machine learning, sql, docker…",
-                                    label_visibility="collapsed")
-            st.markdown('<p style="font-size:.72rem;color:#484F58;margin-top:4px">'
-                        'Leave blank → coverage mode against full vocabulary</p>',
+    with st.container(border=True):
+        st.markdown('<span class="sec">📎 Resume for Evaluation</span>', unsafe_allow_html=True)
+        mf = st.file_uploader("mf", type=["pdf","docx"], key="mf", label_visibility="collapsed")
+        if mf:
+            st.markdown(f'<div style="margin-top:4px"><span class="badge">✓ {mf.name}</span></div>',
                         unsafe_allow_html=True)
+
+    st.write("")
+    with st.container(border=True):
+        st.markdown('<span class="sec">🎯 Ground-Truth Skills (optional)</span>', unsafe_allow_html=True)
+        gt_input = st.text_area("gt", height=90,
+                                placeholder="python, machine learning, sql, docker…",
+                                label_visibility="collapsed")
+        st.markdown('<p style="font-size:.72rem;color:#484F58;margin-top:4px">'
+                    'Leave blank → coverage mode against full vocabulary</p>',
+                    unsafe_allow_html=True)
 
     st.write("")
     if st.button("📐  Compute Metrics", key="btn_metrics"):
@@ -591,19 +610,24 @@ with tab3:
                 st.plotly_chart(cf, use_container_width=True)
 
             with st.expander("🔬 spaCy NER — Named Entities"):
-                from src.resume_parser import NLP
                 raw = parsed.get("raw_text","")
-                if raw:
-                    doc = NLP(raw[:3000])
-                    ents = list({(e.text,e.label_) for e in doc.ents})
-                    if ents:
-                        import pandas as pd
-                        st.dataframe(
-                            pd.DataFrame(ents, columns=["Entity","Label"]).sort_values("Label"),
-                            use_container_width=True, hide_index=True)
-                    else:
-                        st.markdown('<p style="color:#484F58;font-style:italic">No named entities found.</p>',
-                                    unsafe_allow_html=True)
+                ents = extract_resume_entities(raw) if raw else []
+                if ents:
+                    import pandas as pd
+                    df_ent = pd.DataFrame(ents).rename(
+                        columns={"entity":"Entity","label":"Label","source":"Detected by"})
+                    counts = df_ent["Label"].value_counts()
+                    st.markdown(
+                        '<div class="pills-wrap" style="margin-bottom:10px">' +
+                        "".join(f'<span class="pill pb">{lbl} · {n}</span>' for lbl,n in counts.items()) +
+                        '</div>', unsafe_allow_html=True)
+                    st.dataframe(df_ent, use_container_width=True, hide_index=True)
+                    st.caption("Labels: PERSON, EMAIL, PHONE, URL, INSTITUTION, ORGANIZATION, LOCATION, "
+                               "DEGREE, JOB_TITLE, DATE, SKILL. spaCy hits are validated and re-labelled; "
+                               "regex/vocabulary rules fill the gaps.")
+                else:
+                    st.markdown('<p style="color:#484F58;font-style:italic">No named entities found.</p>',
+                                unsafe_allow_html=True)
 
     st.markdown("<hr>", unsafe_allow_html=True)
     st.markdown('<span class="sec-title">System Architecture</span>', unsafe_allow_html=True)
@@ -612,7 +636,7 @@ with tab3:
     for col,(title,color,items) in zip([a1,a2,a3],[
         ("🔍 Extraction","#58A6FF",
          ["pdfplumber · python-docx","Regex: email, phone, URLs",
-          "spaCy NER: PERSON, ORG","Section header detection","Degree & date patterns"]),
+          "spaCy NER + rules: PERSON, ORG, LOCATION…","Section header detection","Degree & date patterns"]),
         ("🧮 Matching","#3FB950",
          ["TF-IDF (1–2 ngrams, 5k feats)","Cosine similarity (sklearn)",
           "200+ skill vocabulary","Composite weighted score","Multi-candidate ranking"]),
