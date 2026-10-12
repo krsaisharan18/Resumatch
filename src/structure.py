@@ -216,18 +216,13 @@ OCR_DPI = 200
 
 def _get_ocr():
     global _OCR_ENGINE, _OCR_FAILED
-
     if _OCR_ENGINE is not None or _OCR_FAILED:
         return _OCR_ENGINE
-
     try:
         from rapidocr_onnxruntime import RapidOCR
         _OCR_ENGINE = RapidOCR()
     except Exception:
-        import logging
-        logging.exception("RapidOCR initialization failed on deployment")
         _OCR_FAILED = True
-
     return _OCR_ENGINE
 
 
