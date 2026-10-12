@@ -283,22 +283,33 @@ NLP = _load_spacy()
 # ── text extraction ──────────────────────────────────────────────────────────
 
 def extract_text_from_pdf(path):
-    text = []
-    with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text()
-            if t: text.append(t)
-    return "\n".join(text)
+    from src.structure import pdf_text
+    try:
+        return pdf_text(path)
+    except Exception:
+        text = []
+        with pdfplumber.open(path) as pdf:
+            for page in pdf.pages:
+                t = page.extract_text()
+                if t: text.append(t)
+        return "\n".join(text)
 
 def extract_text_from_docx(path):
-    doc = docx.Document(path)
-    return "\n".join(p.text for p in doc.paragraphs)
+    from src.structure import docx_text
+    try:
+        return docx_text(path)
+    except Exception:
+        doc = docx.Document(path)
+        return "\n".join(p.text for p in doc.paragraphs)
 
 def extract_text(path):
+    from src.structure import prepare_text
     ext = Path(path).suffix.lower()
-    if ext == ".pdf":   return extract_text_from_pdf(path)
-    if ext in (".docx",".doc"): return extract_text_from_docx(path)
-    with open(path,"r",errors="ignore") as f: return f.read()
+    if ext == ".pdf":   raw = extract_text_from_pdf(path)
+    elif ext in (".docx",".doc"): raw = extract_text_from_docx(path)
+    else:
+        with open(path,"r",errors="ignore") as f: raw = f.read()
+    return prepare_text(raw)
 
 # ── hyperlink extraction (URLs embedded as clickable links, not visible text) ─
 
@@ -364,9 +375,13 @@ def extract_email(text):
     return None
 
 def extract_phone(text):
-    m = re.search(
-        r"(?:\+?\d{1,3}[\s\-.]?)?(?:\(?\d{2,4}\)?[\s\-.]?)?\d{3,4}[\s\-.]?\d{4}", text)
-    return m.group(0).strip() if m else None
+    for m in re.finditer(r"(?<![\w.])\+?\(?\d[\d \t\-.()]{8,17}\d(?![\w.])", text):
+        cand = m.group(0).strip()
+        if len(re.sub(r"\D", "", cand)) > 14:
+            cand = re.sub(r"^\d{5,6}\s+", "", cand)
+        if 10 <= len(re.sub(r"\D", "", cand)) <= 14:
+            return cand
+    return None
 
 # Non-profile GitHub paths to ignore (org pages, feature pages, etc.)
 _GH_IGNORE = {"features","marketplace","topics","explore","pricing","about",
@@ -436,26 +451,156 @@ def _looks_like_name(candidate):
         return False
     return True
 
+# Everything except EMAIL, PHONE and DATE is detected by GLiNER now. These are
+# the exact label strings GLiNER is prompted with -- it's a zero-shot model, so
+# it isn't limited to a fixed training-set vocabulary the way spaCy's tagger is,
+# and prompting it with the specific label we want (e.g. "job title" instead of
+# spaCy's generic news-domain categories) is what makes it noticeably better at
+# resume-style PERSON / ORGANIZATION / LOCATION / INSTITUTION / DEGREE /
+# JOB_TITLE / URL extraction.
+_GLINER_LABELS = ["person", "organization", "location", "institution",
+                   "degree", "job title", "url"]
+_GLINER_LABEL_MAP = {
+    "person": "PERSON", "organization": "ORGANIZATION", "location": "LOCATION",
+    "institution": "INSTITUTION", "degree": "DEGREE", "job title": "JOB_TITLE",
+    "url": "URL",
+}
+_GLINER_MODEL = None
+_GLINER_UNAVAILABLE = False   # set once if loading fails, so we don't retry every call
+
+
+def _get_gliner():
+    """Lazily load GLiNER (zero-shot NER) once per process. Returns None if the
+    package isn't installed or the model can't be downloaded/found locally, so
+    callers can fall back to the regex rules instead of crashing."""
+    global _GLINER_MODEL, _GLINER_UNAVAILABLE
+    if _GLINER_MODEL is not None or _GLINER_UNAVAILABLE:
+        return _GLINER_MODEL
+    try:
+        from gliner import GLiNER
+        _GLINER_MODEL = GLiNER.from_pretrained("urchade/gliner_small-v2.1")
+    except Exception:
+        _GLINER_UNAVAILABLE = True
+        _GLINER_MODEL = None
+    return _GLINER_MODEL
+
+
+def _gliner_entities(text, labels=None):
+    """Run GLiNER over `text` for the given zero-shot labels (default: every
+    label in _GLINER_LABELS). Returns a list of {"text","label"} with `label`
+    already mapped to our canonical names (PERSON, ORGANIZATION, ...), or None
+    if GLiNER isn't available -- callers fall back to the regex rules in that
+    case, which is the only situation those rules still run in."""
+    model = _get_gliner()
+    if model is None:
+        return None
+    labels = labels or _GLINER_LABELS
+    try:
+        preds = model.predict_entities(text, labels, threshold=0.5)
+        return [{"text": p["text"], "label": _GLINER_LABEL_MAP.get(p["label"], p["label"])}
+                for p in preds]
+    except Exception:
+        return None
+
+
+def _person_org_loc_entities(text, doc=None):
+    """PERSON / ORGANIZATION / LOCATION candidates for `text`, as a list of
+    {"text", "label"} with label in {"person","organization","location"}
+    (lower-case, pre-mapping -- kept for extract_name_spacy's simpler needs).
+    Falls back to spaCy's `doc` (already NLP(text)) if GLiNER is unavailable.
+    """
+    preds = _gliner_entities(text, labels=["person", "organization", "location"])
+    if preds is not None:
+        inv = {"PERSON": "person", "ORGANIZATION": "organization", "LOCATION": "location"}
+        return [{"text": p["text"], "label": inv.get(p["label"], p["label"].lower())} for p in preds]
+    out = []
+    if doc is not None:
+        for ent in doc.ents:
+            if ent.label_ == "PERSON":
+                out.append({"text": ent.text, "label": "person"})
+            elif ent.label_ == "ORG":
+                out.append({"text": ent.text, "label": "organization"})
+            elif ent.label_ in ("GPE", "LOC", "FAC"):
+                out.append({"text": ent.text, "label": "location"})
+    return out
+
+
+def _repair_name_line(line):
+    """Fix names broken by small-caps or letter-spaced styling:
+    'A MANs harma' -> 'Aman Sharma', 'A I DEN Williams' -> 'Aiden Williams'."""
+    toks = line.split()
+    if not (2 <= len(toks) <= 8) or re.search(r"[\d@/|,:]", line):
+        return line
+    odd = any(len(t) == 1 and t.isupper() for t in toks) or any(
+        re.search(r"[A-Z]{2,}[a-z]", t) for t in toks)
+    if not odd or not all(t.isalpha() for t in toks):
+        return line
+    if not any(re.search(r"[a-z]", t) for t in toks):
+        return line                             # all caps: initials like 'K R SAI SHARAN' are real
+    if sum(bool(re.fullmatch(r"[A-Z][a-z]{2,}", t)) for t in toks) >= 2:
+        return line                             # already fine ('Sai Sharan K R')
+    expanded = []
+    for t in toks:                              # 'MANs' -> 'MAN', 's' (small-caps: lowercase starts a new word)
+        m = re.fullmatch(r"([A-Z]{2,})([a-z]+)", t)
+        expanded.extend([m.group(1), m.group(2)] if m else [t])
+    words, buf = [], ""
+    for t in expanded:
+        if re.fullmatch(r"[A-Z][a-z]{2,}", t):          # a normal Titlecase word ends the fragment run
+            if buf: words.append(buf); buf = ""
+            words.append(t)
+        elif t.isupper():
+            buf += t
+            if len(t) >= 3:
+                words.append(buf); buf = ""
+        else:                                            # lowercase fragment(s)
+            buf += t
+    if buf:
+        words.append(buf)
+    if not 2 <= len(words) <= 4:
+        return line
+    return " ".join(w.capitalize() if not re.fullmatch(r"[A-Z][a-z]+", w) else w for w in words)
+
+
 def extract_name_spacy(text):
+    """Name extraction is layout-first, spaCy-second.
+
+    spaCy's PERSON tag is trained on news text, so on a resume header line like
+    "SAI SHARAN  |  Bengaluru  |  sai@gmail.com" it regularly mis-tags, misses the
+    name entirely, or grabs a trailing word. But a resume's name is almost always
+    the very first non-empty line, in Title Case or ALL CAPS, with no digits,
+    email, or contact symbols -- a far more reliable signal than generic NER here.
+    So the layout heuristic goes first; spaCy is only a fallback for odd layouts
+    (e.g. a logo/line above the name, or the name on line 2-3).
+    """
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     head_lines = lines[:15]
 
-    # 1) Ask spaCy for PERSON entities near the top of the document, then validate
-    #    each candidate so we don't accidentally return a company/section header.
+    # 1) Layout heuristic: the first candidate-shaped line in the header, also
+    #    handling an ALL CAPS name (common in resume templates) by title-casing
+    #    it before validation.
+    for line in head_lines[:5]:
+        candidate = _repair_name_line(line)
+        if candidate.isupper():
+            candidate = candidate.title()
+        if _looks_like_name(candidate):
+            return candidate
+
+    # 2) GLiNER (falling back to spaCy) PERSON entities near the top, validated
+    #    the same way.
     head_text = "\n".join(head_lines)
     doc = NLP(head_text[:1000])
-    persons = [ent.text.strip() for ent in doc.ents if ent.label_ == "PERSON"]
+    ents = _person_org_loc_entities(head_text[:1000], doc)
+    persons = [e["text"].strip() for e in ents if e["label"] == "person"]
     for p in persons:
         if _looks_like_name(p):
             return p
 
-    # 2) Fallback: scan the first few non-empty lines for something name-shaped.
-    #    Most resumes put the candidate's name on line 1-3, before any contact info.
-    for line in head_lines[:6]:
+    # 3) Looser layout scan further down the header.
+    for line in head_lines[5:8]:
         if _looks_like_name(line):
             return line
 
-    # 3) Last resort: return the first (unvalidated) spaCy PERSON hit, if any.
+    # 4) Last resort: first (unvalidated) spaCy PERSON hit, if any.
     if persons:
         return persons[0]
     return None
@@ -502,29 +647,68 @@ _DATE_RANGE_RE = re.compile(
     rf"|{_MONTHS}\.?,?\s+(?:19|20)\d{{2}}"
     rf"|(?<![\d.])(?:19|20)\d{{2}}(?![\d.])", re.I)
 
-# Job-title vocabulary -- shared by resume JOB_TITLE detection and JD role extraction
+# Job-title vocabulary -- shared by resume JOB_TITLE detection and JD role extraction.
+# Includes internship/co-op/graduate-program nouns since those are job *roles* on
+# JDs just as much as full-time titles, and ATS systems extract them the same way.
 _TITLE_NOUNS = (
-    r"Engineer|Developer|Programmer|Scientist|Analyst|Researcher|Intern|Trainee|Manager|"
-    r"Architect|Consultant|Designer|Administrator|Specialist|Lead|Director|Officer|"
-    r"Associate|Tester|Technician|Strategist|Executive|Coordinator|Evangelist|Advocate|"
-    r"Fellow|Apprentice|Head|Owner|SDE|SWE|Technologist"
+    r"Engineer|Developer|Programmer|Scientist|Analyst|Researcher|Intern|Internship|"
+    r"Trainee|Traineeship|Manager|Architect|Consultant|Designer|Administrator|"
+    r"Specialist|Lead|Director|Officer|Associate|Tester|Technician|Strategist|"
+    r"Executive|Coordinator|Evangelist|Advocate|Fellow|Apprentice|Apprenticeship|"
+    r"Head|Owner|SDE|SWE|Technologist|Co-?op"
 )
+# Case-insensitive, plural-tolerant version for matching inside free-flowing JD
+# prose ("hiring software engineers", "seeking data science interns").
+_TITLE_NOUNS_PLURAL = rf"(?:{_TITLE_NOUNS})s?"
 _TITLE_RE = re.compile(
     rf"\b((?:[A-Z][\w\.\+#/&\-]*\s+){{0,4}}(?:{_TITLE_NOUNS})(?:\s+(?:I{{1,3}}|IV|V|\d))?)\b")
+# Looser variant used only for JD text: allows lowercase words and plurals, since
+# JD prose is often not capitalized the way a resume heading or title line is.
+# Word separators are [ \t] rather than \s so a match can never cross a newline
+# (which would otherwise bleed one line's trailing word into the next line's
+# title), and the prefix charclass excludes "." so a sentence-ending period
+# doesn't get swallowed as part of a "word".
+_TITLE_RE_LOOSE = re.compile(
+    rf"(?i)\b((?:[\w\+#/&\-]+[ \t]+){{0,4}}{_TITLE_NOUNS_PLURAL}(?:[ \t]+(?:I{{1,3}}|IV|V|\d))?)\b")
 _TITLE_FILLER = {"a","an","the","our","new","great","passionate","motivated","talented",
                  "skilled","experienced","highly","dynamic","creative","enthusiastic",
                  "driven","strong","dedicated","smart","ambitious","proactive","exceptional",
                  "results-driven","detail-oriented","self-motivated","hands-on","we","are",
                  "is","looking","for","hiring","seeking","as","and","or","to","of","in",
                  "at","with","join","us","about","i","am","was","worked","working","the",
-                 "responsibilities","role","position"}
+                 "responsibilities","role","position","urgent","urgently","requirement",
+                 "requirements","need","needed","immediate","opening","openings","vacancy",
+                 "vacancies","post","profile","applications","invited","now","currently",
+                 "recruiting","apply","application","wanted","required","require"}
 
 _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 _URL_RE = re.compile(
     r"(?:https?://)?(?:www\.)?(?:linkedin\.com/in/[\w\-\.%]+|github\.com/[\w\-]+(?:/[\w\-\.]+)?|"
     r"leetcode\.com/[\w\-/]+|kaggle\.com/[\w\-]+|[\w\-]+\.(?:vercel\.app|netlify\.app|github\.io|"
     r"streamlit\.app|herokuapp\.com|onrender\.com))", re.I)
-_PHONE_RE = re.compile(r"(?<![\w.])(?:\+?\d{1,3}[\s\-.]?)?(?:\(?\d{2,5}\)?[\s\-.]?)?\d{3,5}[\s\-.]?\d{4,5}(?![\w.])")
+_PHONE_RE = re.compile(r"(?<![\w.])\+?\(?\d[\d \t\-.()]{8,17}\d(?![\w.])")
+# Company suffixes / patterns -- catches employer names spaCy's generic ORG tag
+# regularly misses or mis-boundaries on resumes ("Infosys Pvt. Ltd.", "Acme Technologies").
+_ORG_SUFFIX_RE = re.compile(
+    r"\b([A-Z][\w&'\.\-]*(?:[ \t]+[A-Z][\w&'\.\-]*){0,4}[ \t]+"
+    r"(?:Pvt\.?[ \t]?Ltd\.?|Private[ \t]Limited|Ltd\.?|LLC|LLP|Inc\.?|Corp\.?|"
+    r"Corporation|Technologies|Technology|Solutions|Systems|Labs|Laboratories|"
+    r"Consulting|Industries|Enterprises|Group|Ventures|Software|Networks|"
+    r"Analytics|Innovations|Infotech|Softwares|Pvt))\b")
+# "<Role> at <Company>" / "<Role> with <Company>" lines under an Experience or
+# Internship section header -- the layout ATS parsers lean on most. Deliberately
+# requires the literal "at"/"with" keyword (not just "line starts with a capital
+# letter"): without that anchor there's no reliable way to tell a title-first
+# line ("Software Engineering Intern, Acme Technologies") from a company-first
+# one ("Infosys, Machine Learning Intern") by punctuation alone, and guessing
+# wrong pollutes the organisation list with job titles. No (?i) here on purpose
+# -- it's the capitalisation of the company name itself that makes this safe.
+_EXPERIENCE_HEADERS = re.compile(
+    r"(?i)^\s*(work\s+experience|experience|professional\s+experience|employment\s+history|"
+    r"internships?|career\s+history)\s*:?\s*$")
+_EXP_LINE_ORG_RE = re.compile(
+    r"\b(?:at|with)\s+([A-Z][\w&'\.\-]*(?:[ \t]+(?:of|and|&|[A-Z][\w&'\.\-]*)){0,4})"
+    r"\s*(?:[,\|\u2013\u2014\-]|\s+\(|$)")
 _INSTITUTION_KW = re.compile(r"\b(college|university|institute|school|academy|polytechnic|iit|nit|iiit|iisc)\b", re.I)
 _INSTITUTION_RE = re.compile(
     r"[A-Z][\w\.&'’\-]*(?:[ \t]+(?:of|for|and|&|the|[A-Z][\w\.&'’\-]*))*?[ \t]+"
@@ -549,6 +733,143 @@ def _is_tech_or_noise(t):
     # multi-word strings made entirely of tech words ("Machine Learning", "Google Cloud")
     words = re.findall(r"[a-z0-9\+#\.]+", low)
     return bool(words) and all(w in _SKILL_TERMS or w in _NOISE_WORDS for w in words)
+
+
+_GENERIC_TAIL = {"modules","management","efficiency","operations","control","analysis","development",
+                 "design","leadership","skills","accuracy","collaboration","planning","strategy",
+                 "training","testing","reporting","service","services","systems","virtualization",
+                 "gauge","handle","game","widget","system","platform","engineering","science"}
+
+
+_STRONG_ORG = re.compile(
+    r"(?i)\b(inc|llc|ltd|limited|pvt|private|corp|corporation|company|co|clinic|hospital|bank|foundation|"
+    r"association|society|council|agency|group|health|healthcare|enterprises|ventures|labs|solutions|"
+    r"technologies|consulting|consultants|services|industries|partners|capital|studios?|airlines|motors)\b")
+
+
+def _merge_structure(text, out):
+    """Use the parsed structure (companies, institutions, titles, locations, dates)
+    to validate what the model/regex found and to fill in what it missed."""
+    from src import structure as st
+    try:
+        a = analyse_structure(text)
+    except Exception:
+        return out
+    exp, edu = a["experience"], a["education"]
+    s_comp = [st.clean_org(e.get("company")) for e in exp if isinstance(e, dict) and e.get("company")]
+    s_inst = [e["institution"] for e in edu if isinstance(e, dict) and e.get("institution")]
+    s_issuer = st.issuer_orgs(a["certifications"])
+    s_title = [e["title"] for e in exp if isinstance(e, dict) and e.get("title")]
+    s_deg = [e["degree"] for e in edu if isinstance(e, dict) and e.get("degree")]
+    s_loc = [x for x in ([a["location"]] + [e.get("location") for e in exp + edu if isinstance(e, dict)]) if x]
+    s_dates = [e["dates"] for e in exp + edu if isinstance(e, dict) and e.get("dates")]
+    for it in a["projects"]:
+        m = re.search(r"\(([^()]*(?:19|20)\d{2}[^()]*)\)", it)
+        if m and st.DATE_RANGE.search(m.group(1)) or (m and st.DATE_SINGLE.search(m.group(1))):
+            s_dates.append(m.group(1))
+
+    low = lambda x: x.lower()
+    known_org = {low(x) for x in s_comp + s_issuer}
+    known_inst = {low(x) for x in s_inst}
+    have_struct = bool(known_org or known_inst)
+    skills_sec = (a["sections"].get("skills") or "").lower()
+    head_line = (a["headline"] or "").lower()
+    listed_low = {x.lower() for x in a["listed_skills"]}
+    loc_parts = {p.strip().lower() for l in s_loc for p in re.split(r",\s*", l) if p.strip()}
+    loc_parts |= {re.sub(r"\d+", "", p).strip() for p in list(loc_parts)}
+    cities = {p.split(",")[0].strip().lower() for p in s_loc}
+
+    def ok_org(e):
+        t, lw = e["entity"], e["entity"].lower()
+        if lw in known_org or lw in known_inst:
+            return True
+        if "," in t or re.search(r"\d", t) or len(t.split()) > 6:
+            return False
+        if re.match(r"^[A-Z]{2}\s", t) and t.split()[0] in st._US_ABBR:
+            return False
+        if lw in listed_low or lw in head_line or (skills_sec and lw in skills_sec):
+            return False
+        if any(lw in x.lower() for x in a["achievements"]):
+            return False
+        if st.has_title_word(t) and not st._ORG_SUFFIX.search(t):
+            return False
+        if t.split()[-1].lower() in _GENERIC_TAIL and not st._ORG_SUFFIX.search(t):
+            return False
+        if t.lower() in {d.lower() for d in s_deg} or st._DEGREE_LINE.search(t) and not st._INST_RE.search(t):
+            return False
+        if have_struct and not _STRONG_ORG.search(t):
+            return False
+        return True
+
+    kept = []
+    for e in out:
+        lab, t = e["label"], e["entity"]
+        if e["source"] == "Structure":
+            kept.append(e); continue
+        if lab == "ORGANIZATION" and not ok_org(e):
+            continue
+        if lab == "INSTITUTION":
+            if "," in t or t.lower() in st._GENERIC_EDU or (not st._INST_RE.search(t) and low(t) not in known_inst):
+                continue
+        if lab == "PERSON" and a["name"] and not (t.lower() == a["name"].lower() or t.lower() in a["name"].lower()):
+            continue
+        if lab == "LOCATION":
+            lw = t.lower()
+            if re.search(r"\d", t) or st.has_title_word(t) or lw in listed_low:
+                continue
+            _W = st._load_words()
+            if _W.get(lw, 1e9) <= _W.get("__max__", 0) and lw not in cities and lw not in st._REGIONS and lw not in loc_parts:
+                continue                        # a common English word ("Employee"), not a place
+            if loc_parts and lw not in loc_parts and lw not in st._REGIONS and lw not in cities:
+                continue
+        if lab == "DEGREE" and (not st._DEGREE_LINE.search(t) or (len(t) < 4 and "." not in t)):
+            continue
+        if lab == "JOB_TITLE" and not st.has_title_word(t):
+            continue
+        if lab == "DATE" and not re.search(r"(?:19|20)\d{2}|present|current", t, re.I):
+            continue
+        kept.append(e)
+
+    seen = {(e["entity"].lower(), e["label"]) for e in kept}
+    def add(ent, label):
+        ent = _norm_ws(ent)
+        if not ent:
+            return
+        if (ent.lower(), label) in seen:
+            for e in kept:
+                if e["label"] == label and e["entity"].lower() == ent.lower():
+                    e["source"] = "Structure"
+            return
+        seen.add((ent.lower(), label))
+        kept.append({"entity": ent, "label": label, "source": "Structure"})
+    if a["name"]: add(a["name"], "PERSON")
+    for x in s_comp + s_issuer: add(x, "ORGANIZATION")
+    for x in s_inst: add(x, "INSTITUTION")
+    for x in s_title: add(x, "JOB_TITLE")
+    for x in s_deg: add(x, "DEGREE")
+    for x in s_loc: add(x, "LOCATION")
+    for x in s_dates: add(x, "DATE")
+    # a degree/title is never also an organisation
+    drop = {low(x) for x in s_deg + s_title}
+    kept = [e for e in kept if not (e["label"] in ("ORGANIZATION", "INSTITUTION", "LOCATION") and low(e["entity"]) in drop)]
+    # an entity wholly contained in a longer one of the same label is a fragment
+    def _frag(e, lst):
+        lw = e["entity"].lower()
+        return any(o is not e and o["label"] == e["label"] and lw != o["entity"].lower() and lw in o["entity"].lower()
+                   and (o["source"] == "Structure" or e["label"] in ("DATE", "DEGREE", "INSTITUTION", "LOCATION"))
+                   for o in lst)
+    kept = [e for e in kept if not (e["label"] in ("DATE", "DEGREE", "INSTITUTION", "LOCATION") and e["source"] != "Structure" and _frag(e, kept))]
+    # "CA San Diego State University" / "Present Warehouse Operations Manager": prefix noise
+    def _noisy(e, lst):
+        lw = e["entity"].lower()
+        return e["source"] != "Structure" and any(
+            o["source"] == "Structure" and o["label"] == e["label"] and o["entity"].lower() != lw and o["entity"].lower() in lw
+            for o in lst)
+    kept = [e for e in kept if not _noisy(e, kept)]
+    # inst/org duplicates -> institution wins
+    inst_l = {e["entity"].lower() for e in kept if e["label"] == "INSTITUTION"}
+    kept = [e for e in kept if not (e["label"] == "ORGANIZATION" and e["entity"].lower() in inst_l)]
+    return kept
 
 
 def extract_resume_entities(text, max_chars=8000):
@@ -580,10 +901,6 @@ def extract_resume_entities(text, max_chars=8000):
         e = extract_email(m.group(0))
         if e: add(e, "EMAIL", "Regex")
 
-    url_spans = []
-    for m in _URL_RE.finditer(text.replace("\\", "/")):
-        url_spans.append(m.group(0).lower())
-        add(m.group(0).rstrip("/"), "URL", "Regex")
     # phone: only from the header/contact area and only if it has 10+ digits
     head = "\n".join(lines[:15])
     for m in _PHONE_RE.finditer(head):
@@ -591,25 +908,9 @@ def extract_resume_entities(text, max_chars=8000):
         if len(re.sub(r"\D", "", cand)) >= 10 and not _EMAIL_RE.search(cand):
             add(cand, "PHONE", "Regex"); break
 
-    inst_spans = []
-    for line in lines:
-        for m in _INSTITUTION_RE.finditer(line):
-            inst_spans.append(m.group(0).lower())
-            add(m.group(0), "INSTITUTION", "Regex")
-        for m in _DEGREE_ENT_RE.finditer(line):
-            add(m.group(1), "DEGREE", "Regex")
-        if len(line.split()) <= 14:
-            for m in _TITLE_RE.finditer(line):
-                words = m.group(1).split()
-                while words and words[0].lower() in _TITLE_FILLER:
-                    words.pop(0)
-                if words and not _is_tech_or_noise(" ".join(words)) and len(words) <= 5:
-                    add(" ".join(words), "JOB_TITLE", "Regex")
-
     date_spans = []
     for m in _DATE_RANGE_RE.finditer(text):
         s = _norm_ws(m.group(0))
-        # skip years that belong to a longer date range already captured / phone digits
         date_spans.append(s.lower())
         add(s, "DATE", "Regex")
 
@@ -620,38 +921,160 @@ def extract_resume_entities(text, max_chars=8000):
             continue
         add(skill, "SKILL", "Vocabulary")
 
-    # ── 2. spaCy, validated and re-labelled ──────────────────────────────────
-    doc = NLP(text)
+    # ── 2. Everything else: GLiNER, with the old regex rules as a fallback ────
+    # Only EMAIL, PHONE and DATE stay regex-based above. PERSON, ORGANIZATION,
+    # LOCATION, INSTITUTION, DEGREE, JOB_TITLE and URL are all GLiNER now -- it's
+    # a zero-shot NER model prompted directly with these label names, rather
+    # than spaCy's fixed news-domain categories or a hand-written pattern, which
+    # is why it reads resume-style text more reliably across all of them. The
+    # regex/spaCy rules below only run if GLiNER isn't installed or its weights
+    # aren't available locally (first run needs internet to download them once).
+    gliner_preds = _gliner_entities(text)
+    doc = NLP(text)   # still needed for the DATE regex's spaCy supplement, and
+                       # as the fallback source if GLiNER is unavailable
+    src_label = "GLiNER" if gliner_preds is not None else "spaCy/Regex"
+
+    if gliner_preds is not None:
+        inst_spans, org_spans = [], []
+
+        def clean(t):
+            t = _norm_ws(t)
+            if t.isupper() or t.islower():
+                t = t.title()
+            return t
+
+        # institutions first, so organisation/location can be checked against them
+        for e in gliner_preds:
+            if e["label"] != "INSTITUTION":
+                continue
+            t = clean(e["text"])
+            if len(t) < 2 or _is_tech_or_noise(t):
+                continue
+            inst_spans.append(t.lower())
+            add(t, "INSTITUTION", src_label)
+
+        for e in gliner_preds:
+            t_raw = _norm_ws(e["text"])
+            low = t_raw.lower()
+            if len(t_raw) < 2 or _is_tech_or_noise(t_raw):
+                continue
+            label = e["label"]
+            if label == "INSTITUTION":
+                continue   # already handled above
+            if label == "DEGREE":
+                add(t_raw, "DEGREE", src_label)
+            elif label == "URL":
+                add(t_raw.rstrip("/"), "URL", src_label)
+            elif label == "JOB_TITLE":
+                words = t_raw.split()
+                while words and words[0].lower() in _TITLE_FILLER:
+                    words.pop(0)
+                if words and not _is_tech_or_noise(" ".join(words)):
+                    add(" ".join(words), "JOB_TITLE", src_label)
+            elif label == "PERSON":
+                t = clean(t_raw)
+                if "@" in t_raw or re.search(r"https?:|www\.|\.com|\.io", low):
+                    continue
+                if _looks_like_name(t) and not any(w in _SKILL_TERMS or w in _NOISE_WORDS
+                                                    for w in low.split()):
+                    add(t, "PERSON", src_label)
+            elif label == "ORGANIZATION":
+                if "@" in t_raw or re.search(r"https?:|www\.|\.com|\.io", low):
+                    continue
+                if any(low in s or s in low for s in inst_spans):
+                    continue                       # already captured as INSTITUTION
+                if re.fullmatch(r"[\d\W]+", t_raw) or len(t_raw.split()) > 6:
+                    continue
+                if any(low in s or s in low for s in org_spans):
+                    continue
+                org_spans.append(low)
+                add(t_raw, "ORGANIZATION", src_label)
+            elif label == "LOCATION":
+                if any(low in s for s in inst_spans) or re.search(r"\d", t_raw):
+                    continue
+                if t_raw[0].isupper():
+                    add(t_raw, "LOCATION", src_label)
+    else:
+        # ── GLiNER unavailable: fall back to the regex/spaCy rules ───────────
+        for m in _URL_RE.finditer(text.replace("\\", "/")):
+            add(m.group(0).rstrip("/"), "URL", "Regex")
+
+        inst_spans, org_spans = [], []
+        in_experience = False
+        for line in lines:
+            if _EXPERIENCE_HEADERS.match(line):
+                in_experience = True
+                continue
+            if (line and line.strip(":-• \t").isupper() and len(line.split()) <= 4
+                    and not _EXPERIENCE_HEADERS.match(line)):
+                in_experience = False  # a new ALL-CAPS section header ends Experience
+
+            for m in _INSTITUTION_RE.finditer(line):
+                inst_spans.append(m.group(0).lower())
+                add(m.group(0), "INSTITUTION", "Regex")
+            for m in _DEGREE_ENT_RE.finditer(line):
+                add(m.group(1), "DEGREE", "Regex")
+            for m in _ORG_SUFFIX_RE.finditer(line):
+                cand = m.group(1)
+                if not _is_tech_or_noise(cand):
+                    org_spans.append(cand.lower())
+                    add(cand, "ORGANIZATION", "Regex")
+            if in_experience and len(line.split()) <= 16:
+                for m in _EXP_LINE_ORG_RE.finditer(line):
+                    cand = _norm_ws(m.group(1))
+                    low = cand.lower()
+                    if (cand and not _is_tech_or_noise(cand) and len(cand.split()) <= 5
+                            and not any(low in s or s in low for s in org_spans)
+                            and not _INSTITUTION_KW.search(cand)):
+                        org_spans.append(low)
+                        add(cand, "ORGANIZATION", "Regex")
+            if len(line.split()) <= 14:
+                for m in _TITLE_RE.finditer(line):
+                    words = m.group(1).split()
+                    while words and words[0].lower() in _TITLE_FILLER:
+                        words.pop(0)
+                    if words and not _is_tech_or_noise(" ".join(words)) and len(words) <= 5:
+                        add(" ".join(words), "JOB_TITLE", "Regex")
+
+        for ent in doc.ents:
+            t = _norm_ws(ent.text)
+            low = t.lower()
+            if len(t) < 2 or _is_tech_or_noise(t) or "@" in t or re.search(r"https?:|www\.|\.com|\.io", low):
+                continue
+            if ent.label_ == "PERSON":
+                t_check = t.title() if t.isupper() else t
+                if _looks_like_name(t_check) and not any(w in _SKILL_TERMS or w in _NOISE_WORDS
+                                                          for w in low.split()):
+                    add(t_check, "PERSON", "spaCy")
+            elif ent.label_ == "ORG":
+                if any(low in s or s in low for s in inst_spans) or any(low in s or s in low for s in org_spans):
+                    continue
+                if re.fullmatch(r"[\d\W]+", t) or len(t.split()) > 6:
+                    continue
+                if _INSTITUTION_KW.search(t):
+                    add(t, "INSTITUTION", "spaCy")
+                elif t[0].isupper() and not t.isupper() or len(t) > 4:
+                    add(t, "ORGANIZATION", "spaCy")
+            elif ent.label_ in ("GPE", "LOC", "FAC"):
+                if any(low in s for s in inst_spans) or re.search(r"\d", t):
+                    continue
+                if t[0].isupper():
+                    add(t, "LOCATION", "spaCy")
+
+    # ── 3. DATE supplement from spaCy (regex already found the common patterns)
     for ent in doc.ents:
+        if ent.label_ != "DATE":
+            continue
         t = _norm_ws(ent.text)
         low = t.lower()
-        if len(t) < 2 or _is_tech_or_noise(t) or "@" in t or re.search(r"https?:|www\.|\.com|\.io", low):
+        if len(t) < 2 or _is_tech_or_noise(t):
             continue
-        if ent.label_ == "PERSON":
-            if _looks_like_name(t) and not any(w in _SKILL_TERMS or w in _NOISE_WORDS
-                                               for w in low.split()):
-                add(t, "PERSON", "spaCy")
-        elif ent.label_ == "ORG":
-            if any(low in s or s in low for s in inst_spans):
-                continue                           # already captured as INSTITUTION
-            if re.fullmatch(r"[\d\W]+", t) or len(t.split()) > 6:
-                continue
-            if _INSTITUTION_KW.search(t):
-                add(t, "INSTITUTION", "spaCy")
-            elif t[0].isupper() and not t.isupper() or len(t) > 4:
-                add(t, "ORGANIZATION", "spaCy")
-        elif ent.label_ in ("GPE", "LOC", "FAC"):
-            if any(low in s for s in inst_spans) or re.search(r"\d", t):
-                continue
-            if t[0].isupper():
-                add(t, "LOCATION", "spaCy")
-        elif ent.label_ == "DATE":
-            if any(low in d or d in low for d in date_spans):
-                continue
-            if re.search(r"(?:19|20)\d{2}", t) and len(re.sub(r"\D", "", t)) < 9:
-                add(t, "DATE", "spaCy")
-        # everything else (CARDINAL, PRODUCT, WORK_OF_ART, NORP, ...) is noise on resumes
+        if any(low in d or d in low for d in date_spans):
+            continue
+        if re.search(r"(?:19|20)\d{2}", t) and len(re.sub(r"\D", "", t)) < 9:
+            add(t, "DATE", "spaCy")
 
+    out = _merge_structure(text, out)
     order = {"PERSON":0,"EMAIL":1,"PHONE":2,"URL":3,"INSTITUTION":4,"ORGANIZATION":5,
              "LOCATION":6,"DEGREE":7,"JOB_TITLE":8,"DATE":9,"SKILL":10}
     out.sort(key=lambda d: (order.get(d["label"], 99), d["entity"].lower()))
@@ -663,13 +1086,23 @@ def extract_resume_entities(text, max_chars=8000):
 # ══════════════════════════════════════════════════════════════════════════════
 
 _JD_LABEL_RE = re.compile(
-    r"(?i)^\W*(?:job\s*title|job\s*role|role|position|designation|title|opening|vacancy|"
-    r"hiring\s*for|post|profile)\s*[:\-–—]\s*(.+)$")
+    r"(?i)^\W*(?:job\s*title|job\s*role(?:\s*name)?|role(?:\s*name)?|position(?:\s*applied\s*for)?|"
+    r"designation(?:\s*applied\s*for)?|title|opening|vacancy|hiring\s*for|post(?:\s*applied\s*for)?|"
+    r"profile|profile\s*offered|role\s*offered|job\s*opening|internship\s*(?:role|profile|program|title)?|"
+    r"applying\s*(?:for|position)|post\s*applied)\s*[:\-–—]\s*(.+)$")
 _JD_PHRASE_RE = re.compile(
-    rf"(?i)(?:looking\s+for|seeking|hiring|searching\s+for|opening\s+for|applications?\s+for|"
-    rf"role\s+of|position\s+of|join\s+(?:us|our\s+team)\s+as|apply\s+for|recruiting)\s+"
-    rf"(?:an?\s+|the\s+)?((?:[\w\.+#/&\-]+\s+){{0,5}}?(?:{_TITLE_NOUNS}))\b")
+    rf"(?i)(?:looking\s+for|seeking|hiring(?:\s+for)?|currently\s+hiring|we'?re\s+hiring|"
+    rf"searching\s+for|opening\s+for|immediate\s+opening\s+for|urgent(?:ly)?\s+(?:hiring|requirement)\s+for|"
+    rf"applications?\s+(?:are\s+)?(?:invited|open)\s+for|applications?\s+for|role\s+of|position\s+of|"
+    rf"join\s+(?:us|our\s+team)\s+as|apply\s+for|recruiting(?:\s+for)?|looking\s+to\s+hire|in\s+need\s+of)\s+"
+    rf"(?:an?\s+|the\s+)?((?:[\w\.+#/&\-]+\s+){{0,5}}?{_TITLE_NOUNS_PLURAL})\b")
 _JD_SPLIT_RE = re.compile(r"\s+[-–—|@]\s+|\s*[|•·]\s*|\s+at\s+|\s+in\s+|\s*\(|\s*,\s*|\s*/\s*(?=[A-Z])|\s+for\s+")
+# Employment-type / metadata labels that look like a role label but never carry a
+# job title -- JDs often list these right next to the real title, so excluding
+# them keeps "Employment Type: Full-time" from being mistaken for a role.
+_JD_NOT_A_ROLE = {"full-time","full time","part-time","part time","remote","hybrid",
+                  "on-site","onsite","contract","permanent","temporary","wfh",
+                  "immediate","asap","open","yes","no","n/a","na"}
 
 
 def _clean_role(raw):
@@ -685,49 +1118,100 @@ def _clean_role(raw):
     return r[:60] if 2 <= len(r) else None
 
 
+def _title_from_line(line):
+    """Find a title-noun phrase anywhere in a raw line and trim leading filler
+    words from the match itself (not from a pre-split line), so a sentence like
+    "Urgent requirement for Java Developer in Pune" yields "Java Developer"
+    rather than swallowing the connective words in front of it."""
+    m = _TITLE_RE_LOOSE.search(line)
+    if not m:
+        return None
+    words = m.group(1).split()
+    while words and words[0].lower() in _TITLE_FILLER:
+        words.pop(0)
+    if not words:
+        return None
+    cand = _norm_ws(" ".join(words))
+    if cand.isupper() or cand.islower():
+        cand = cand.title()
+    return cand
+
+
 def extract_job_role(jd_text):
     """Best-effort job role/title from a job description; None if not detectable.
 
-    Strategy (first hit wins): labelled field ("Job Title: ...") -> heading line
-    that looks like a title -> "we are looking for a ..." phrase -> most frequent
-    title-like phrase in the opening of the JD.
+    Mirrors how ATS platforms (Greenhouse, Lever, Workday-style postings) and
+    recruiter-pasted JDs typically present the role, in order of reliability:
+      1. A labelled field ("Job Title:", "Role:", "Position Applied For:", ...)
+      2. The JD's very first line, when it stands alone as a short heading
+         (ATS postings almost always open with the title before company/location)
+      3. Any other short heading line near the top that is itself a title
+      4. A natural-language phrase ("we are looking for a ...", "hiring for ...")
+      5. The most frequent title-like phrase in the opening of the JD
+    Internship, co-op and trainee roles are matched the same way as full-time
+    titles throughout, and employment-type words (Full-time, Remote, Contract)
+    are filtered out so they're never mistaken for the title itself.
     """
     if not jd_text or not jd_text.strip():
         return None
     lines = [l.strip() for l in jd_text.splitlines() if l.strip()]
 
-    # 1) labelled field
+    def valid(r):
+        return r and r.lower() not in _JD_NOT_A_ROLE and not _is_tech_or_noise(r)
+
+    # 1) labelled field, anywhere in the first 40 non-empty lines
     for l in lines[:40]:
         m = _JD_LABEL_RE.match(l)
         if m:
             r = _clean_role(m.group(1))
-            if r and _TITLE_RE.search(r):
+            if valid(r):
                 return r
 
-    # 2) a short heading line near the top that is itself a title
-    for l in lines[:6]:
-        if len(l.split()) <= 10 and not l.endswith("."):
-            m = _TITLE_RE.search(_clean_role(l) or "")
-            if m:
-                r = _clean_role(m.group(1))
-                if r and not _is_tech_or_noise(r):
-                    return r
+    # 2) the JD's own first line, if it reads as a standalone title heading --
+    #    this is how most job-board postings present the role, with no label at
+    #    all ("Software Development Engineer Intern" as line 1, company/location
+    #    following on later lines). Also handles an unlabelled prefix like
+    #    "Hiring: Software Engineer Intern" by pulling the title phrase out of
+    #    the line rather than trusting the whole line.
+    if lines:
+        first = lines[0]
+        if len(first.split()) <= 12 and not first.endswith((".", ":")):
+            r = _title_from_line(first)
+            if valid(r):
+                return r
+            # no recognised title noun on line 1 but it still reads like a bare
+            # heading (short, no sentence punctuation) -- accept it as-is.
+            cleaned = _clean_role(first)
+            if valid(cleaned) and len(lines) > 1 and len((cleaned or "").split()) <= 6:
+                return cleaned
 
-    # 3) natural-language phrase
+    # 3) any other short heading line near the top that is itself a title
+    for l in lines[1:8]:
+        if len(l.split()) <= 12 and not l.endswith("."):
+            r = _title_from_line(l)
+            if valid(r):
+                return r
+
+    # 4) natural-language phrase ("looking for a ...", "hiring for ...",
+    #    "currently hiring Data Science Interns", "urgent requirement for ...")
     m = _JD_PHRASE_RE.search(jd_text[:3000])
     if m:
         r = _clean_role(m.group(1))
-        if r and not _is_tech_or_noise(r):
+        if valid(r):
+            return r
+    for l in lines[:40]:
+        r = _title_from_line(l) if re.search(r"(?i)requirement|urgent|recruiting", l) else None
+        if valid(r):
             return r
 
-    # 4) most frequent title-like phrase in the opening of the JD
+    # 5) most frequent title-like phrase (loose matcher, case/plural tolerant),
+    #    scanned per line so a match can never straddle two unrelated lines
     counts = {}
-    for m in _TITLE_RE.finditer(jd_text[:1500]):
-        words = m.group(1).split()
-        while words and words[0].lower() in _TITLE_FILLER:
-            words.pop(0)
-        cand = " ".join(words)
-        if cand and not _is_tech_or_noise(cand):
+    for l in lines[:30]:
+        if len(l.split()) > 20:        # skip long prose paragraphs, keep headings/bullets
+            continue
+        cand = _title_from_line(l)
+        if cand and valid(cand):
             counts[cand] = counts.get(cand, 0) + 1
     if counts:
         return max(counts, key=lambda k: (counts[k], len(k)))
@@ -736,14 +1220,16 @@ def extract_job_role(jd_text):
 # ── section splitting ────────────────────────────────────────────────────────
 
 SECTION_HEADERS = {
-    "summary":        r"(?i)^\s*(summary|objective|profile|about\s*me|introduction|overview)\s*$",
-    "education":      r"(?i)^\s*(education|academic|qualification|degree|schooling)\s*$",
-    "experience":     r"(?i)^\s*(experience|employment|work\s*history|career|internship|positions?|roles?|professional\s*background)\s*$",
-    "skills":         r"(?i)^\s*(skills?|technical\s*skills?|competencies|technologies|tools|languages|frameworks?|core\s*skills?)\s*$",
+    "summary":        r"(?i)^\s*(summary|professional\s*summary|career\s*summary|objective|career\s*objective|profile|professional\s*profile|about\s*me|introduction|overview)\s*$",
+    "education":      r"(?i)^\s*(education|educational\s*(background|qualifications?)|academics?|academic\s*(background|qualifications?)|qualifications?|schooling)\s*$",
+    "experience":     r"(?i)^\s*((work|professional|employment|relevant|industry)\s*(experience|history)|experience|employment|career(\s*history)?|internships?|positions?(\s*held)?|professional\s*background)\s*$",
+    "skills":         r"(?i)^\s*(skills?|technical\s*skills?|key\s*skills?|core\s*(skills?|competenc\w+)|competenc\w+|technologies|tools|tools\s*(&|and)\s*technologies|frameworks?|skills?\s*(&|and)\s*(tools|technologies)|areas?\s*of\s*expertise|expertise)\s*$",
+    "languages":      r"(?i)^\s*(languages?|languages?\s*known|language\s*proficiency|linguistic\s*skills?)\s*$",
     "projects":       r"(?i)^\s*(projects?|project\s*work|portfolio|side\s*projects?|personal\s*projects?|academic\s*projects?|key\s*projects?|notable\s*projects?|selected\s*projects?)\s*$",
-    "certifications": r"(?i)^\s*(certif\w*(\s*(&|and)\s*accomplishments)?|licenses?|credentials?|courses?|training)\s*$",
-    "achievements":   r"(?i)^\s*(achievements?|awards?|honours?|honors?|accomplishments?|academic\s*and\s*extracurricular\s*achievements?)\s*$",
-    "other_headers":  r"(?i)^\s*(extra[\s\-]*curricul\w*(\s*(&|and)?\s*(activities|leadership))?|activities|leadership|languages?\s*known|language\s*proficiency|interests?|hobbies)\s*$",
+    "certifications": r"(?i)^\s*(certif\w*(\s*(&|and)\s*(accomplishments|licenses?|courses?))?|licenses?(\s*(&|and)\s*certif\w*)?|credentials?)\s*$",
+    "courses":        r"(?i)^\s*(courses?|training|trainings?|coursework|courses?\s*(&|and)\s*training)\s*$",
+    "achievements":   r"(?i)^\s*((key\s*)?achievements?|awards?(\s*(&|and)\s*(honou?rs|achievements?|recognitions?))?|honou?rs?|accomplishments?|recognitions?|academic\s*and\s*extracurricular\s*achievements?)\s*$",
+    "other_headers":  r"(?i)^\s*(extra[\s\-]*curricul\w*(\s*(&|and)?\s*(activities|leadership))?|activities|leadership|interests?|hobbies|hobbies\s*(&|and)\s*interests?|references?|declaration|publications?|volunteer\w*(\s*experience)?|personal\s*(details|information)|contact(\s*(details|information))?)\s*$",
 }
 
 # Strip leading emoji/bullets/numbering and trailing colons/dashes so headers like
@@ -777,8 +1263,9 @@ def split_sections(text):
 
 DEGREE_RE = re.compile(
     r"(?<![A-Za-z0-9\.])"
-    r"(B\.?Tech|B\.?E\.?|B\.?Sc?\.?|M\.?Tech|M\.?Sc?\.?|MBA|Ph\.?D\.?|"
-    r"Bachelor|Master|Doctorate|Associate|Diploma|B\.?A\.?|M\.?A\.?|BCA|MCA)"
+    r"((?:B\.?Tech|B\.?E\.?|B\.?Sc?\.?|M\.?Tech|M\.?Sc?\.?|MBA|Ph\.?D\.?|"
+    r"B\.?A\.?|M\.?A\.?|BCA|MCA)(?![A-Za-z])|"
+    r"Bachelor|Master|Doctorate|Associate|Diploma)"
     r"[^\n]{0,80}", re.I)
 YEAR_RE = re.compile(r"\b((19|20)\d{2})\b")
 
@@ -965,6 +1452,80 @@ def extract_achievements(text):
 
 # ── main ─────────────────────────────────────────────────────────────────────
 
+def analyse_structure(raw_text):
+    """Parse every section of a resume into structured entries (see src/structure.py)."""
+    from src import structure as st
+    sections = split_sections(raw_text)
+    name = extract_name_spacy(raw_text)
+    hl = st.header_lines(raw_text)
+    headline = st.extract_headline(hl, name)
+    if headline and headline.isupper():
+        headline = headline.title()
+
+    exp = st.parse_experience(sections.get("experience", ""))
+    for c in st.parse_experience(sections.get("courses", "")):
+        c["kind"] = "Course"
+        exp.append(c)
+    if not exp and sections.get("experience", "").strip():
+        exp = extract_experience(sections["experience"])
+
+    edu = st.parse_education(sections.get("education", ""))
+    if not edu:
+        edu = extract_education(sections.get("education", "") or raw_text)
+
+    proj = []
+    ptxt = sections.get("projects", "")
+    if ptxt.strip():
+        items = st.parse_titled_items(ptxt)
+        if items:
+            for it in items:
+                proj.append(it["title"] + (f" - {it['subtitle']}" if it.get("subtitle") else "")
+                            + (f" ({it['dates']})" if it["dates"] else "")
+                            + (": " + it["description"] if it["description"] else ""))
+        else:
+            proj = extract_projects(ptxt, raw_text)
+    else:
+        proj = extract_projects("", raw_text)
+
+    certs = st.parse_certifications(sections.get("certifications", ""))
+    if not st.parse_experience(sections.get("courses", "")) and sections.get("courses", "").strip():
+        certs += st.parse_certifications(sections["courses"])
+    ach = st.parse_achievements(sections.get("achievements", ""))
+
+    skills_txt = sections.get("skills", "")
+    lang_txt = sections.get("languages", "")
+    listed = st.parse_listed_skills(skills_txt)
+    spoken = st.parse_languages(lang_txt) or st.parse_languages(skills_txt)
+    # a "Languages" section often lists programming languages too: keep those as listed skills
+    for it in st.parse_listed_skills(lang_txt):
+        if it.lower() not in {x.lower() for x in listed}:
+            listed.append(it)
+
+    summary = re.sub(r"\s+", " ", sections.get("summary", "")).strip() or st.extract_summary_fallback(sections.get("other", ""), name, headline)
+    location = st.extract_header_location(hl)
+    return {"sections": sections, "name": name, "headline": headline, "experience": exp,
+            "education": edu, "projects": proj, "certifications": certs, "achievements": ach,
+            "listed_skills": listed, "spoken_languages": spoken, "summary": summary,
+            "location": location}
+
+
+def _filter_ambiguous(skills, raw_text, a):
+    """'r', 'c', 'go' are also ordinary letters/words: keep them only when they sit in
+    the skills section or on a line that lists other skills."""
+    sec = (a["sections"].get("skills") or "") + "\n" + (a["sections"].get("languages") or "")
+    keep = []
+    for sk in skills:
+        if sk not in {"r", "c", "go"}:
+            keep.append(sk); continue
+        pat = re.compile(r"(?<![\w\-+#])" + ("[Rr]" if sk == "r" else "[Cc]" if sk == "c" else "[Gg]o") + r"(?![\w\-+#])")
+        if sk != "go" and pat.search(sec):
+            keep.append(sk); continue
+        for line in raw_text.splitlines():
+            if pat.search(line) and len(set(extract_skills(pat.sub(" ", line))) - {sk}) >= 2:
+                keep.append(sk); break
+    return keep
+
+
 def parse_resume(file_path):
     raw_text  = extract_text(file_path)
     # Pull hyperlinks that may not appear as plain text (clickable icons in PDFs/DOCX)
@@ -972,20 +1533,29 @@ def parse_resume(file_path):
     # Append hyperlink URLs to the search corpus for contact field extraction
     contact_corpus = raw_text + "\n" + "\n".join(hyperlinks)
 
-    sections  = split_sections(raw_text)
+    a = analyse_structure(raw_text)
+    from src import structure as _st
+    used_ocr = bool(_st.LAST_OCR) if Path(file_path).suffix.lower() == ".pdf" else False
+    ents = extract_resume_entities(raw_text)
+    orgs = [e["entity"] for e in ents if e["label"] in ("ORGANIZATION", "INSTITUTION")]
     return {
         "raw_text":       raw_text,
-        "name":           extract_name_spacy(raw_text),
+        "ocr":            used_ocr,
+        "name":           a["name"],
+        "headline":       a["headline"],
         "email":          extract_email(contact_corpus),
         "phone":          extract_phone(contact_corpus),
         "linkedin":       extract_linkedin(contact_corpus),
         "github":         extract_github(contact_corpus),
-        "skills":         extract_skills(raw_text),
-        "education":      extract_education(sections.get("education","") or raw_text),
-        "experience":     extract_experience(sections.get("experience","") or ""),
-        "projects":       extract_projects(sections.get("projects","") or "", raw_text),
-        "certifications": extract_certifications(sections.get("certifications","") or ""),
-        "achievements":    extract_achievements(sections.get("achievements","") or ""),
-        "summary":        sections.get("summary",""),
-        "organisations":  extract_orgs_spacy(raw_text),
+        "location":       a["location"],
+        "skills":         _filter_ambiguous(extract_skills(raw_text), raw_text, a),
+        "listed_skills":  a["listed_skills"],
+        "languages":      a["spoken_languages"],
+        "education":      a["education"],
+        "experience":     a["experience"],
+        "projects":       a["projects"],
+        "certifications": a["certifications"],
+        "achievements":   a["achievements"],
+        "summary":        a["summary"],
+        "organisations":  orgs,
     }
