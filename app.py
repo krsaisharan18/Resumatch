@@ -9,6 +9,7 @@ if ROOT not in sys.path: sys.path.insert(0, ROOT)
 from src.resume_parser import (parse_resume, SKILLS_DB, extract_job_role, extract_resume_entities,
                                extract_text, canonicalize_skill)
 from src.matcher import candidate_score, skill_extraction_metrics, rank_candidates
+from src import structure as _struct
 from src.visualizations import set_theme as set_chart_theme
 from src.visualizations import (skill_donut, prf_radar, skill_bubble, tfidf_top_terms,
                                 ranking_bar, confusion_bar)
@@ -75,7 +76,7 @@ summary:focus-visible, [data-baseweb="select"]:focus-within { outline:2px solid 
   margin-right:2.4rem; font:700 1.3rem/1 var(--head); letter-spacing:-.025em; color:var(--ink);
   background:url("__LOGO__") no-repeat left center / 34px 34px; }
 [role="tablist"]::after{
-  content:"Classical NLP · No LLM"; position:static !important; width:auto !important; height:auto !important; inset:auto !important; flex:none; margin-left:auto; white-space:nowrap;
+  content:"Classical NLP · No LLM"; position:static !important; width:auto !important; height:auto !important; inset:auto !important; flex:none; margin-left:auto; margin-right:128px; white-space:nowrap;
   font:500 .86rem/1 var(--body); color:var(--ink-2); padding:8px 14px 8px 30px; border:1px solid var(--line);
   border-radius:99px; background:radial-gradient(circle at 15px 50%, #1F9D63 0 4px, transparent 5px) no-repeat, var(--surface); }
 [data-testid="stTab"]{
@@ -405,10 +406,13 @@ set_chart_theme(dark)
 
 THEME_CSS = """
 <style>
-.st-key-themebox{ position:fixed; top:15px; right:max(1.5rem, calc((100% - 1160px) / 2 + 1.5rem + 232px)); z-index:101; width:auto !important; }
+.st-key-themebox{ position:fixed; top:0; height:66px; display:flex; align-items:center; z-index:101; width:auto !important;
+  right:max(1.5rem, calc((100% - 1160px) / 2 + 1.5rem)); }
+.st-key-themebox, .st-key-themebox > div, .st-key-themebox [data-testid="stElementContainer"], .st-key-themebox [data-testid="stVerticalBlock"]{ margin:0 !important; padding:0 !important; gap:0 !important; height:66px; display:flex !important; align-items:center !important; justify-content:center; }
+.st-key-themebox [data-testid="stCheckbox"], .st-key-themebox label{ align-items:center; }
 .st-key-themebox [data-testid="stCheckbox"], .st-key-themebox [data-testid="stToggle"]{ margin:0; }
 .st-key-themebox label p{ font:560 .86rem var(--body) !important; color:var(--ink-2) !important; }
-@media (max-width:900px){ .st-key-themebox{ right:1rem; top:70px; } }
+@media (max-width:900px){ .st-key-themebox{ right:1rem; } [role="tablist"]::after{ margin-right:0; } }
 </style>
 """
 st.markdown(THEME_CSS, unsafe_allow_html=True)
@@ -557,7 +561,8 @@ def render_single(res):
     p, s, ents, role = res["parsed"], res["scores"], res["ents"], res["role"]
     if not (res.get("raw") or "").strip():
         notice("err", "No text could be read from this file",
-               "It looks like a scanned image and the OCR add-on is not installed. Run: pip install rapidocr-onnxruntime")
+               "It looks like a scanned image and the OCR add-on could not start. Run: pip install rapidocr-onnxruntime"
+               + (f" (reason: {esc(_struct.OCR_ERROR)})" if _struct.OCR_ERROR else ""))
         return
     if p.get("ocr"):
         notice("warn", "Scanned PDF, read with OCR",

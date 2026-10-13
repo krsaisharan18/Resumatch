@@ -211,18 +211,20 @@ def _split_runs_of_two_blocks(lines):
 
 _OCR_ENGINE = None
 _OCR_FAILED = False
+OCR_ERROR = ""          # why OCR is unavailable (shown in the app instead of a vague message)
 OCR_DPI = 200
 
 
 def _get_ocr():
-    global _OCR_ENGINE, _OCR_FAILED
+    global _OCR_ENGINE, _OCR_FAILED, OCR_ERROR
     if _OCR_ENGINE is not None or _OCR_FAILED:
         return _OCR_ENGINE
     try:
         from rapidocr_onnxruntime import RapidOCR
         _OCR_ENGINE = RapidOCR()
-    except Exception:
+    except Exception as e:
         _OCR_FAILED = True
+        OCR_ERROR = f"{type(e).__name__}: {e}"[:300]
     return _OCR_ENGINE
 
 
@@ -392,11 +394,32 @@ def _fix_ocr_spacing(text):
     return out
 
 
+def _tesseract_words(page, dpi=OCR_DPI):
+    """Fallback OCR through the tesseract binary (pytesseract), word by word."""
+    global OCR_ERROR
+    try:
+        import pytesseract
+        im = page.to_image(resolution=dpi).original.convert("RGB")
+        d = pytesseract.image_to_data(im, output_type=pytesseract.Output.DICT)
+    except Exception as e:
+        OCR_ERROR = (OCR_ERROR + " | " if OCR_ERROR else "") + f"tesseract: {type(e).__name__}: {e}"[:200]
+        return []
+    k = 72.0 / dpi
+    words = []
+    for i, txt in enumerate(d["text"]):
+        if not txt.strip() or float(d["conf"][i]) < 30:
+            continue
+        x0, top, w, h = d["left"][i] * k, d["top"][i] * k, d["width"][i] * k, d["height"][i] * k
+        words.append({"text": _fix_ocr_spacing(txt.strip()), "x0": x0, "x1": x0 + w, "top": top,
+                      "bottom": top + h, "size": max(6.0, h * 0.8), "ocr": True})
+    return words
+
+
 def ocr_words(page, dpi=OCR_DPI):
     """OCR one pdfplumber page -> pseudo-words in PDF points (same shape as extract_words)."""
     eng = _get_ocr()
     if eng is None:
-        return []
+        return _tesseract_words(page, dpi)
     import numpy as np
     im = page.to_image(resolution=dpi).original.convert("RGB")
     res, _ = eng(np.array(im))
