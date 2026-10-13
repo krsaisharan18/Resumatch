@@ -561,6 +561,27 @@ def _repair_name_line(line):
     return " ".join(w.capitalize() if not re.fullmatch(r"[A-Z][a-z]+", w) else w for w in words)
 
 
+def _name_from_email(name, email):
+    """Re-split a name whose word breaks were misread, using the email as a witness:
+    'Amans Harm A' + asharmaal@... -> 'Aman Sharma' (the surname 'sharma' is in the email)."""
+    if not name or not email:
+        return name
+    local = re.sub(r"[^a-z]", "", email.split("@")[0].lower())
+    toks = name.split()
+    letters = re.sub(r"[^a-z]", "", name.lower())
+    if len(letters) < 6 or len(local) < 4:
+        return name
+    last = re.sub(r"[^a-z]", "", toks[-1].lower())
+    if len(last) >= 4 and last in local:
+        return name                                   # already consistent with the email
+    for n in range(len(letters) - 2, 3, -1):          # longest surname first
+        sur = letters[-n:]
+        if sur in local and len(letters) - n >= 2:
+            first = letters[:-n]
+            return f"{first.capitalize()} {sur.capitalize()}"
+    return name
+
+
 def extract_name_spacy(text):
     """Name extraction is layout-first, spaCy-second.
 
@@ -1179,7 +1200,14 @@ def extract_job_role(jd_text):
             r = _title_from_line(first)
             if valid(r):
                 return r
-            # no recognised title noun on line 1 but it still reads like a bare
+            # a standalone line elsewhere that is exactly a title ("Product Manager Intern")
+            # beats a tagline on line 1 ("Unlocking the Power of Ownership")
+            for l in lines[1:70]:
+                if len(l.split()) <= 6 and not re.search(r"[.:;,!?]$", l):
+                    r2 = _title_from_line(l)
+                    if valid(r2) and r2.lower() == _clean_role(l).lower():
+                        return r2
+            # no recognised title noun anywhere but line 1 still reads like a bare
             # heading (short, no sentence punctuation) -- accept it as-is.
             cleaned = _clean_role(first)
             if valid(cleaned) and len(lines) > 1 and len((cleaned or "").split()) <= 6:
@@ -1541,7 +1569,7 @@ def parse_resume(file_path):
     return {
         "raw_text":       raw_text,
         "ocr":            used_ocr,
-        "name":           a["name"],
+        "name":           _name_from_email(a["name"], extract_email(contact_corpus)),
         "headline":       a["headline"],
         "email":          extract_email(contact_corpus),
         "phone":          extract_phone(contact_corpus),

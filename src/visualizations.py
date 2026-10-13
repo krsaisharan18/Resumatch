@@ -23,6 +23,23 @@ DISPLAY = "Schibsted Grotesk, Onest, Segoe UI, sans-serif"
 
 BASE = dict(paper_bgcolor=BG, plot_bgcolor=BG, font=dict(family=FONT, color=INK, size=13))
 
+_LIGHT = dict(INK="#141A3C", MID="#4A5175", DIM="#636B8F", GRID="#E9E6DE", LINE="#E6E3DA", ACCENT="#3B3FD8",
+              OK="#1F9D63", BAD="#D9534F", WARN="#D89A1E", SOFT="#AEB3D6", PANEL="#F1F0EA", RING="#FFFFFF")
+_DARK = dict(INK="#ECEEFB", MID="#B3B9D9", DIM="#8C93B8", GRID="#2A3050", LINE="#2A3050", ACCENT="#8B8EF5",
+             OK="#4CC38A", BAD="#F0766B", WARN="#E5B25D", SOFT="#5A6290", PANEL="#232842", RING="#171B2E")
+PANEL, RING = _LIGHT["PANEL"], _LIGHT["RING"]
+
+
+def set_theme(dark=False):
+    """Switch the chart palette between light and dark (call before building figures)."""
+    global INK, MID, DIM, GRID, LINE, ACCENT, OK, BAD, WARN, SOFT, PANEL, RING, BASE, SURFACE, BORDER, TXT
+    t = _DARK if dark else _LIGHT
+    INK, MID, DIM, GRID, LINE, ACCENT = t["INK"], t["MID"], t["DIM"], t["GRID"], t["LINE"], t["ACCENT"]
+    OK, BAD, WARN, SOFT, PANEL, RING = t["OK"], t["BAD"], t["WARN"], t["SOFT"], t["PANEL"], t["RING"]
+    SURFACE, BORDER, TXT = RING, LINE, INK
+    BASE = dict(paper_bgcolor=BG, plot_bgcolor=BG, font=dict(family=FONT, color=INK, size=13))
+
+
 def _score_color(score):
     return OK if score >= 65 else ACCENT if score >= 50 else WARN if score >= 35 else BAD
 
@@ -37,7 +54,7 @@ def gauge_chart(score, title="Overall match"):
         title=dict(text=f'<span style="color:{MID};font-size:13px">{title}</span>'),
         gauge=dict(axis=dict(range=[0, 100], tickcolor=LINE, tickfont=dict(color=DIM, size=10),
                              tickvals=[0, 25, 50, 75, 100]),
-                   bar=dict(color=color, thickness=0.28), bgcolor="#F1F0EA", borderwidth=0,
+                   bar=dict(color=color, thickness=0.28), bgcolor=PANEL, borderwidth=0,
                    threshold=dict(line=dict(color=INK, width=2), thickness=0.85, value=65))))
     fig.update_layout(**BASE, height=260, margin=dict(l=20, r=20, t=24, b=10))
     return fig
@@ -47,7 +64,7 @@ def skill_donut(matched, missing, extra):
     fig = go.Figure(go.Pie(
         labels=["Matched", "Missing", "Bonus"], values=[matched, missing, extra],
         hole=0.66, sort=False, direction="clockwise",
-        marker=dict(colors=[OK, BAD, SOFT], line=dict(color="#FFFFFF", width=3)),
+        marker=dict(colors=[OK, BAD, SOFT], line=dict(color=RING, width=3)),
         textinfo="percent", textfont=dict(size=12, color="#FFFFFF", family=FONT),
         hovertemplate="<b>%{label}</b><br>%{value} skills<extra></extra>"))
     fig.update_layout(**BASE, height=300, title=_title("Skill coverage"), showlegend=True,
@@ -85,7 +102,7 @@ def ranking_bar(ranked):
 def prf_radar(precision, recall, f1):
     vals, cats = [precision * 100, recall * 100, f1 * 100], ["Precision", "Recall", "F1 score"]
     fig = go.Figure(go.Scatterpolar(r=vals + [vals[0]], theta=cats + [cats[0]], fill="toself",
-        fillcolor="rgba(59,63,216,0.12)", line=dict(color=ACCENT, width=2.5),
+        fillcolor="rgba(110,114,240,0.18)", line=dict(color=ACCENT, width=2.5),
         marker=dict(size=8, color=ACCENT), hovertemplate="<b>%{theta}</b>: %{r:.1f}%<extra></extra>"))
     fig.update_layout(**BASE, height=320, title=_title("Precision, recall and F1"), showlegend=False,
         polar=dict(bgcolor=BG,
@@ -123,7 +140,7 @@ def skill_bubble(matched, missing, extra):
     for grp, d in traces.items():
         fig.add_trace(go.Scatter(x=d["x"], y=d["y"], mode="markers+text", name=grp, text=d["text"],
             textposition="top center", textfont=dict(size=11, color=INK),
-            marker=dict(size=16, color=d["color"], line=dict(color="#FFFFFF", width=2)),
+            marker=dict(size=16, color=d["color"], line=dict(color=RING, width=2)),
             hovertext=d["hov"], hoverinfo="text"))
     fig.update_layout(**BASE, height=420, title=_title("Skill map"),
         xaxis=dict(showticklabels=False, showgrid=False, zeroline=False),
