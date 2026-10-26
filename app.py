@@ -413,11 +413,12 @@ set_chart_theme(dark)
 
 THEME_CSS = """
 <style>
-.st-key-themebox{ position:fixed; top:0; height:66px; display:flex; align-items:center; z-index:101; width:auto !important;
-  right:max(0.5rem, calc((100% - 1160px) / 2 + 0.5rem)); padding-top:6px; }
-.st-key-themebox, .st-key-themebox > div, .st-key-themebox [data-testid="stElementContainer"], .st-key-themebox [data-testid="stVerticalBlock"]{ margin:0 !important; padding:0 !important; gap:0 !important; height:66px; display:flex !important; align-items:center !important; justify-content:center; }
+.st-key-themebox{ position:fixed; top:33px; transform:translateY(-50%); height:auto; display:flex; align-items:center; z-index:101; width:auto !important;
+  right:max(0.5rem, calc((100% - 1160px) / 2 + 0.5rem)); }
+.st-key-themebox, .st-key-themebox > div, .st-key-themebox [data-testid="stElementContainer"], .st-key-themebox [data-testid="stVerticalBlock"]{ margin:0 !important; padding:0 !important; gap:0 !important; height:auto; display:flex !important; align-items:center !important; justify-content:center; }
 .st-key-themebox [data-testid="stCheckbox"], .st-key-themebox label{ align-items:center; }
 .st-key-themebox [data-testid="stCheckbox"], .st-key-themebox [data-testid="stToggle"]{ margin:0; }
+.st-key-themebox{ margin-top:3px !important; }
 .st-key-themebox label p{ font:560 .86rem var(--body) !important; color:var(--ink-2) !important; }
 @media (max-width:900px){ .st-key-themebox{ right:1rem; } [role="tablist"]::after{ margin-right:0; } }
 </style>
