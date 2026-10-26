@@ -312,6 +312,12 @@ textarea::placeholder{ color:var(--ink-3) !important; }
 [data-testid="stExpander"] details summary:hover{ background:var(--field); }
 [data-testid="stExpander"] details summary p{ font:650 1.05rem var(--head) !important; }
 [data-testid="stExpander"] details > div{ padding:.3rem 1.4rem 1.3rem !important; }
+/* centered text: expander titles and the Paste text / Upload file toggle */
+[data-testid="stExpander"] details summary{ justify-content:center !important; text-align:center !important; }
+[data-testid="stExpander"] details summary > div{ justify-content:center !important; text-align:center !important; width:100%; }
+[data-testid="stExpander"] details summary p{ text-align:center !important; }
+[data-testid="stButtonGroup"]{ justify-content:center !important; }
+[data-testid="stButtonGroup"] button, [data-testid="stButtonGroup"] button p{ justify-content:center !important; text-align:center !important; }
 [data-testid="stDataFrame"]{ border:1px solid var(--line); border-radius:14px; overflow:hidden; }
 [data-baseweb="select"] > div, [data-testid="stTextInput"] [data-baseweb="base-input"]{
   background:var(--field) !important; border:1.5px solid var(--line) !important; border-radius:12px !important; min-height:2.8rem; }
