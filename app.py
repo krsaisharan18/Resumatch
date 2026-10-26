@@ -76,7 +76,7 @@ summary:focus-visible, [data-baseweb="select"]:focus-within { outline:2px solid 
   margin-right:2.4rem; font:700 1.3rem/1 var(--head); letter-spacing:-.025em; color:var(--ink);
   background:url("__LOGO__") no-repeat left center / 34px 34px; }
 [role="tablist"]::after{
-  content:"Classical NLP · No LLM"; position:static !important; width:auto !important; height:auto !important; inset:auto !important; flex:none; margin-left:auto; margin-right:140px; white-space:nowrap;
+  content:"Classical NLP · No LLM"; position:static !important; width:auto !important; height:auto !important; inset:auto !important; flex:none; margin-left:auto; margin-right:128px; white-space:nowrap;
   font:500 .86rem/1 var(--body); color:var(--ink-2); padding:8px 14px 8px 30px; border:1px solid var(--line);
   border-radius:99px; background:radial-gradient(circle at 15px 50%, #1F9D63 0 4px, transparent 5px) no-repeat, var(--surface); }
 [data-testid="stTab"]{
@@ -234,7 +234,7 @@ textarea::placeholder{ color:var(--ink-3) !important; }
 .ring b{ position:relative; font:740 1.7rem var(--head); letter-spacing:-.03em; }
 .verdict-k{ color:var(--ink-3); font-size:.95rem; margin-bottom:6px; }
 .verdict{ font:700 1.35rem/1.2 var(--head); letter-spacing:-.02em; margin-top:10px; max-width:15ch; }
-.bars{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.6rem 2rem; margin-top:1.8rem; padding-top:1.6rem; border-top:1px solid var(--line-2); }
+.bars{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:2rem; margin-top:1.8rem; padding-top:1.6rem; border-top:1px solid var(--line-2); }
 .formula{ color:var(--ink-3); font-size:.9rem; margin-top:1.2rem; }
 
 .sg + .sg{ margin-top:1.6rem; }
@@ -407,14 +407,10 @@ set_chart_theme(dark)
 THEME_CSS = """
 <style>
 .st-key-themebox{ position:fixed; top:0; height:66px; display:flex; align-items:center; z-index:101; width:auto !important;
-  right:max(1rem, calc((100vw - 1160px) / 2 - 1.2rem)); }
-.st-key-themebox, .st-key-themebox > div, .st-key-themebox [data-testid="stElementContainer"], .st-key-themebox [data-testid="stVerticalBlock"]{
-  margin:0 !important; padding:0 !important; gap:0 !important; height:66px; display:flex !important; align-items:center !important; justify-content:center; }
-.st-key-themebox [data-testid="stCheckbox"], .st-key-themebox label{ align-items:center; margin:0; }
-.st-key-themebox label{ height:35px; padding:0; border:0; background:transparent; gap:10px; display:flex !important; align-items:center !important; }
-.st-key-themebox label > *{ margin:0 !important; }
-.st-key-themebox label p{ line-height:1 !important; margin:0 !important; }
-.st-key-themebox label > div:first-child{ display:flex; align-items:center; }
+  right:max(1.5rem, calc((100% - 1160px) / 2 + 1.5rem)); }
+.st-key-themebox, .st-key-themebox > div, .st-key-themebox [data-testid="stElementContainer"], .st-key-themebox [data-testid="stVerticalBlock"]{ margin:0 !important; padding:0 !important; gap:0 !important; height:66px; display:flex !important; align-items:center !important; justify-content:center; }
+.st-key-themebox [data-testid="stCheckbox"], .st-key-themebox label{ align-items:center; }
+.st-key-themebox [data-testid="stCheckbox"], .st-key-themebox [data-testid="stToggle"]{ margin:0; }
 .st-key-themebox label p{ font:560 .86rem var(--body) !important; color:var(--ink-2) !important; }
 @media (max-width:900px){ .st-key-themebox{ right:1rem; } [role="tablist"]::after{ margin-right:0; } }
 </style>
@@ -466,9 +462,6 @@ def chip(text, tone="neutral", ic=None):
 def chips(items, tone, ic=None, empty="None"):
     if not items: return f'<span class="nf">{esc(empty)}</span>'
     return '<div class="chips">' + "".join(chip(i, tone, ic) for i in items) + '</div>'
-
-def _tone_of(score):
-    return "ok" if score >= 65 else ("warn" if score >= 40 else "bad")
 
 def bar(label, pct, tone, note=""):
     pct = max(0.0, min(100.0, float(pct)))
@@ -553,12 +546,13 @@ tab1, tab2, tab3 = st.tabs([":material/description: Single Resume",
 # SINGLE RESUME
 # ═════════════════════════════════════════════════════════════════════════════
 def run_single(resume_file, jd_text):
-    w = 0.55
+    w = st.session_state.get("w_cos", 0.55)
     with st.spinner("Reading the resume…"):
         tmp = save_upload(resume_file); parsed = parse_resume(tmp); os.unlink(tmp)
     with st.spinner("Scoring it against the job description…"):
         raw = parsed.get("raw_text", "")
-        scores = candidate_score(raw, parsed.get("skills", []), jd_text)
+        scores = candidate_score(raw, parsed.get("skills", []), jd_text,
+                                 weights={"cosine": w, "skill": round(1 - w, 2)})
         ents = get_entities(raw)
     st.session_state["single"] = dict(parsed=parsed, scores=scores, ents=ents, raw=raw, jd=jd_text, w=w,
                                       role=extract_job_role(jd_text), fname=resume_file.name)
@@ -600,10 +594,12 @@ def render_single(res):
         <div><div class="verdict-k">Overall job match</div>{chip(g + " match", GRADE_CHIP[g])}
         <div class="verdict">{esc("for " + role) if role else "for this job description"}</div></div></div></div>
       <div class="bars">
-        {"".join(bar(b["label"], b["score"], _tone_of(b["score"]), f'{b["note"]} · counts for {b["weight"]}%' if b["note"] else f'Counts for {b["weight"]}%') for b in s.get("breakdown", []))}
+        {bar("Overall score", s["composite_score"], tone, g)}
+        {bar("Skill match", s["skill_match_pct"], "ok", f"{n_match} of {n_req} required skills")}
+        {bar("Text similarity", s["cosine_similarity"], "soft", "TF-IDF cosine similarity")}
       </div>
-      <div class="formula">The score works like an applicant tracking system: it checks, part by part, whether the resume has what the job asks for.
-      Each part counts for the share shown. Parts the job does not ask about are left out.</div></div>''')
+      <div class="formula">Overall score is {int(res["w"]*100)}% text similarity and {int(round((1-res["w"])*100))}% skill match.
+      Change the split under Scoring weights.</div></div>''')
 
     cover = (f'<div class="cover t-ok">{bar("Required skills found", (n_match / n_req * 100) if n_req else 0, "ok", f"{n_match} of {n_req} skills from the job description")}</div>'
              if n_req else '<div class="nf cover">No known skills were found in the job description.</div>')
@@ -703,6 +699,10 @@ with tab1:
     _, mid, _ = st.columns([1, 1.15, 1])
     with mid:
         go = st.button("Analyse resume", key="btn_analyse", type="primary", icon=":material/search:", use_container_width=True)
+        with st.popover("Scoring weights", icon=":material/tune:"):
+            st.markdown("Choose how much text similarity counts against skill match.")
+            st.slider("Text similarity (TF-IDF) weight", 0.0, 1.0, 0.55, 0.05, key="w_cos")
+            st.caption(f"Skill match gets the remaining {int(round((1 - st.session_state.get('w_cos', 0.55)) * 100))}%.")
         if go:
             if not resume_file:
                 notice("err", "Add a resume first", "Upload a PDF or DOCX file to analyse.")
