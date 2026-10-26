@@ -317,6 +317,7 @@ textarea::placeholder{ color:var(--ink-3) !important; }
 [data-testid="stExpander"] details summary > div{ justify-content:center !important; text-align:center !important; width:100%; }
 [data-testid="stExpander"] details summary p{ text-align:center !important; }
 [data-testid="stButtonGroup"]{ justify-content:center !important; }
+[data-testid="stButtonGroup"]{ margin-top:.7rem !important; margin-bottom:.4rem !important; }
 [data-testid="stButtonGroup"] button, [data-testid="stButtonGroup"] button p{ justify-content:center !important; text-align:center !important; }
 [data-testid="stDataFrame"]{ border:1px solid var(--line); border-radius:14px; overflow:hidden; }
 [data-baseweb="select"] > div, [data-testid="stTextInput"] [data-baseweb="base-input"]{
@@ -413,7 +414,7 @@ set_chart_theme(dark)
 THEME_CSS = """
 <style>
 .st-key-themebox{ position:fixed; top:0; height:66px; display:flex; align-items:center; z-index:101; width:auto !important;
-  right:max(1.5rem, calc((100% - 1160px) / 2 + 1.5rem)); }
+  right:max(0.5rem, calc((100% - 1160px) / 2 + 0.5rem)); padding-top:6px; }
 .st-key-themebox, .st-key-themebox > div, .st-key-themebox [data-testid="stElementContainer"], .st-key-themebox [data-testid="stVerticalBlock"]{ margin:0 !important; padding:0 !important; gap:0 !important; height:66px; display:flex !important; align-items:center !important; justify-content:center; }
 .st-key-themebox [data-testid="stCheckbox"], .st-key-themebox label{ align-items:center; }
 .st-key-themebox [data-testid="stCheckbox"], .st-key-themebox [data-testid="stToggle"]{ margin:0; }
