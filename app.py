@@ -418,7 +418,11 @@ THEME_CSS = """
 .st-key-themebox, .st-key-themebox > div, .st-key-themebox [data-testid="stElementContainer"], .st-key-themebox [data-testid="stVerticalBlock"]{ margin:0 !important; padding:0 !important; gap:0 !important; height:auto; display:flex !important; align-items:center !important; justify-content:center; }
 .st-key-themebox [data-testid="stCheckbox"], .st-key-themebox label{ align-items:center; }
 .st-key-themebox [data-testid="stCheckbox"], .st-key-themebox [data-testid="stToggle"]{ margin:0; }
-.st-key-themebox{ margin-top:3px !important; }
+.st-key-themebox label{ display:flex !important; flex-direction:row !important; align-items:center !important; gap:.6rem; min-height:0 !important; line-height:1 !important; }
+.st-key-themebox label > *{ align-self:center !important; margin-top:0 !important; margin-bottom:0 !important; }
+.st-key-themebox label [data-baseweb="checkbox"], .st-key-themebox label [data-testid="stWidgetLabel"]{ display:flex !important; align-items:center !important; margin:0 !important; padding:0 !important; }
+.st-key-themebox label p{ margin:0 !important; padding:0 !important; line-height:1 !important; display:flex; align-items:center; }
+.st-key-themebox label > div:first-child{ position:relative; top:-3px; }
 .st-key-themebox label p{ font:560 .86rem var(--body) !important; color:var(--ink-2) !important; }
 @media (max-width:900px){ .st-key-themebox{ right:1rem; } [role="tablist"]::after{ margin-right:0; } }
 </style>
