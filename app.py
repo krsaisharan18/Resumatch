@@ -319,7 +319,7 @@ textarea::placeholder{ color:var(--ink-3) !important; }
 [data-testid="stButtonGroup"]{ justify-content:center !important; }
 [data-testid="stButtonGroup"]{ margin-top:.7rem !important; margin-bottom:.4rem !important; }
 [data-testid="stButtonGroup"] button, [data-testid="stButtonGroup"] button p{ justify-content:center !important; text-align:center !important; }
-[data-testid="stButtonGroup"] button{ display:inline-flex !important; align-items:center !important; justify-content:center !important; padding-top:.55rem !important; padding-bottom:.3rem !important; }
+[data-testid="stButtonGroup"] button{ display:inline-flex !important; align-items:center !important; justify-content:center !important; padding-top:.4rem !important; padding-bottom:.4rem !important; }
 [data-testid="stButtonGroup"] button p, [data-testid="stButtonGroup"] button div{ margin:0 !important; line-height:1.2 !important; display:flex; align-items:center; }
 [data-testid="stDataFrame"]{ border:1px solid var(--line); border-radius:14px; overflow:hidden; }
 [data-baseweb="select"] > div, [data-testid="stTextInput"] [data-baseweb="base-input"]{
