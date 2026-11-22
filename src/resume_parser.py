@@ -1,4 +1,4 @@
-import re, spacy, pdfplumber, docx
+import re, os, spacy, pdfplumber, docx
 from pathlib import Path
 
 SKILLS_DB = [
@@ -302,13 +302,136 @@ def extract_text_from_docx(path):
         doc = docx.Document(path)
         return "\n".join(p.text for p in doc.paragraphs)
 
+# Every file type the app accepts as a resume (or job description). The type is decided from the file's
+# content first and the extension second, so a PDF saved as ".png" or a Word file with no extension still works.
+IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif"]
+ACCEPTED_EXTS = ["pdf", "docx", "doc", "odt", "rtf", "txt", "md", "html", "htm"] + IMAGE_EXTS
+
+
+def sniff_kind(path):
+    """'pdf', 'docx', 'odt', 'doc', 'rtf', 'html', 'image' or 'text'."""
+    import zipfile
+    ext = Path(path).suffix.lower().lstrip(".")
+    with open(path, "rb") as f:
+        head = f.read(4096)
+    if head.startswith(b"%PDF"): return "pdf"
+    if head.startswith(b"PK"):
+        try:
+            names = zipfile.ZipFile(path).namelist()
+            if "word/document.xml" in names: return "docx"
+            if "content.xml" in names: return "odt"
+        except Exception:
+            pass
+    if head.startswith(b"\xd0\xcf\x11\xe0"): return "doc"
+    if head.lstrip().startswith(b"{\\rtf"): return "rtf"
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            im.verify()
+        return "image"
+    except Exception:
+        pass
+    low = head.lower()
+    if ext in ("html", "htm") or b"<html" in low or b"<!doctype html" in low: return "html"
+    if ext == "pdf": return "pdf"
+    if ext == "docx": return "docx"
+    if ext == "doc": return "doc"
+    return "text"
+
+
+def _image_to_pdf(path, out_pdf):
+    """Wrap an image (or every frame of a multi-page TIFF) in a PDF so the normal OCR path reads it."""
+    from PIL import Image, ImageOps, ImageSequence
+    frames = []
+    with Image.open(path) as im:
+        for fr in ImageSequence.Iterator(im):
+            fr = ImageOps.exif_transpose(fr)
+            if fr.mode in ("RGBA", "LA", "P"):
+                fr = fr.convert("RGBA")
+                bg = Image.new("RGB", fr.size, "white"); bg.paste(fr, mask=fr.split()[-1]); fr = bg
+            else:
+                fr = fr.convert("RGB")
+            if fr.width < 1600:                       # small screenshots OCR badly; enlarge so text is ~25px tall
+                k = 1600 / fr.width
+                fr = fr.resize((1600, int(fr.height * k)), Image.LANCZOS)
+            frames.append(fr.copy())
+    frames[0].save(out_pdf, "PDF", resolution=200, save_all=True, append_images=frames[1:])
+
+
+def _rtf_to_text(raw):
+    s = raw
+    s = re.sub(r"\\'([0-9a-fA-F]{2})", lambda m: bytes.fromhex(m.group(1)).decode("cp1252", "ignore"), s)
+    s = re.sub(r"\\u(-?\d+)\??", lambda m: chr(int(m.group(1)) % 65536), s)
+    s = re.sub(r"\{\\\*[^{}]*\}", "", s)                 # ignorable destinations
+    s = re.sub(r"\\(par|line|sect|row)\b ?", "\n", s)
+    s = re.sub(r"\\tab\b ?", "\t", s)
+    s = re.sub(r"\\[a-zA-Z]+-?\d* ?", "", s)
+    s = re.sub(r"\\([\\{}])", r"\1", s)
+    return re.sub(r"[{}]", "", s)
+
+
+def _html_to_text(raw):
+    from html.parser import HTMLParser
+    class P(HTMLParser):
+        def __init__(self):
+            super().__init__(); self.out = []; self.skip = 0
+        def handle_starttag(self, t, a):
+            if t in ("script", "style"): self.skip += 1
+            if t in ("br", "p", "div", "li", "tr", "h1", "h2", "h3", "h4", "section"): self.out.append("\n")
+        def handle_endtag(self, t):
+            if t in ("script", "style"): self.skip = max(0, self.skip - 1)
+            if t in ("p", "div", "li", "tr", "h1", "h2", "h3", "h4", "section"): self.out.append("\n")
+        def handle_data(self, d):
+            if not self.skip: self.out.append(d)
+    p = P(); p.feed(raw)
+    return re.sub(r"\n\s*\n+", "\n", "".join(p.out))
+
+
+def _odt_to_text(path):
+    import zipfile, html as _h
+    xml = zipfile.ZipFile(path).read("content.xml").decode("utf-8", "ignore")
+    xml = re.sub(r"</text:(p|h)>|<text:line-break/>", "\n", xml)
+    xml = re.sub(r"<text:tab/>", "\t", xml)
+    return _h.unescape(re.sub(r"<[^>]+>", "", xml))
+
+
+def _doc_to_text(path):
+    """Old binary Word (.doc): needs LibreOffice or antiword on the machine; otherwise ask for .docx."""
+    import shutil, subprocess, tempfile
+    exe = shutil.which("soffice") or shutil.which("libreoffice")
+    if exe:
+        with tempfile.TemporaryDirectory() as td:
+            subprocess.run([exe, "--headless", "--convert-to", "txt:Text", "--outdir", td, path],
+                           capture_output=True, timeout=90)
+            outs = list(Path(td).glob("*.txt"))
+            if outs: return outs[0].read_text(errors="ignore")
+    if shutil.which("antiword"):
+        r = subprocess.run(["antiword", path], capture_output=True, timeout=60)
+        if r.stdout: return r.stdout.decode("utf-8", "ignore")
+    raise ValueError("This is an old .doc file and no converter is installed. Save it as .docx or PDF and upload again.")
+
+
 def extract_text(path):
     from src.structure import prepare_text
-    ext = Path(path).suffix.lower()
-    if ext == ".pdf":   raw = extract_text_from_pdf(path)
-    elif ext in (".docx",".doc"): raw = extract_text_from_docx(path)
+    from src import structure as _st
+    import tempfile
+    _st.LAST_OCR = False
+    kind = sniff_kind(path)
+    if kind == "pdf":     raw = extract_text_from_pdf(path)
+    elif kind == "docx":  raw = extract_text_from_docx(path)
+    elif kind == "image":
+        fd, tmp = tempfile.mkstemp(suffix=".pdf"); os.close(fd)
+        try:
+            _image_to_pdf(path, tmp); raw = extract_text_from_pdf(tmp)
+        finally:
+            os.unlink(tmp)
+    elif kind == "odt":   raw = _odt_to_text(path)
+    elif kind == "doc":   raw = _doc_to_text(path)
     else:
-        with open(path,"r",errors="ignore") as f: raw = f.read()
+        with open(path, "rb") as f: data = f.read()
+        raw = data.decode("utf-8-sig", errors="ignore") if b"\x00" not in data[:2000] else data.decode("utf-16", errors="ignore")
+        if kind == "rtf":    raw = _rtf_to_text(raw)
+        elif kind == "html": raw = _html_to_text(raw)
     return prepare_text(raw)
 
 # ── hyperlink extraction (URLs embedded as clickable links, not visible text) ─
@@ -345,9 +468,9 @@ def extract_hyperlinks_from_docx(path):
     return links
 
 def get_extra_urls(path):
-    ext = Path(path).suffix.lower()
-    if ext == ".pdf":           return extract_hyperlinks_from_pdf(path)
-    if ext in (".docx",".doc"): return extract_hyperlinks_from_docx(path)
+    kind = sniff_kind(path)
+    if kind == "pdf":  return extract_hyperlinks_from_pdf(path)
+    if kind == "docx": return extract_hyperlinks_from_docx(path)
     return []
 
 # ── contact extractors ───────────────────────────────────────────────────────
@@ -356,7 +479,7 @@ def get_extra_urls(path):
 # directly onto the following text with no space, e.g. "Envelopejohn@gmail.com" or
 # "MailContactjohn@x.com". Strip these known icon-label prefixes off the local part.
 _EMAIL_ICON_PREFIXES = [
-    "envelope", "email", "mail", "contactmail", "gmailicon", "phone-alt", "phonealt",
+    "envelope", "e-mail", "email", "mail", "contactmail", "gmailicon", "phone-alt", "phonealt",
     "mobile", "contact", "linkedin", "github", "website", "portfolio",
     "location", "address", "leetcode",
 ]
@@ -1563,7 +1686,7 @@ def parse_resume(file_path):
 
     a = analyse_structure(raw_text)
     from src import structure as _st
-    used_ocr = bool(_st.LAST_OCR) if Path(file_path).suffix.lower() == ".pdf" else False
+    used_ocr = bool(_st.LAST_OCR)
     ents = extract_resume_entities(raw_text)
     orgs = [e["entity"] for e in ents if e["label"] in ("ORGANIZATION", "INSTITUTION")]
     return {
