@@ -543,7 +543,13 @@ def jd_input(key):
     f = st.file_uploader("Job description file", type=ACCEPTED_EXTS, key=f"{key}_file",
                          label_visibility="collapsed")
     if f:
-        tmp = save_upload(f); text = extract_text(tmp); os.unlink(tmp)
+        tmp = save_upload(f)
+        try:
+            text = extract_text(tmp)
+        except Exception as e:
+            notice("err", "This file could not be read", esc(str(e))[:300])
+        finally:
+            os.unlink(tmp)
     return text
 
 @st.cache_data(show_spinner=False, max_entries=24)
@@ -908,7 +914,13 @@ with tab2:
 # ═════════════════════════════════════════════════════════════════════════════
 def run_metrics(mf, gt_input):
     with st.spinner("Running the extraction…"):
-        tmp = save_upload(mf); parsed = parse_resume(tmp); os.unlink(tmp)
+        tmp = save_upload(mf)
+        try:
+            parsed = parse_resume(tmp)
+        except Exception as e:
+            notice("err", "This file could not be read", esc(str(e))[:300]); return
+        finally:
+            os.unlink(tmp)
         raw = parsed.get("raw_text", "")
         ents = get_entities(raw)
     predicted = parsed.get("skills", [])
