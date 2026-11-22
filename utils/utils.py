@@ -4,7 +4,7 @@ from pathlib import Path
 def save_upload(uploaded_file) -> str:
     suffix = Path(uploaded_file.name).suffix
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-    tmp.write(uploaded_file.read())
+    tmp.write(uploaded_file.getvalue())
     tmp.close()
     return tmp.name
 
