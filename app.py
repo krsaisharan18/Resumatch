@@ -7,8 +7,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 if ROOT not in sys.path: sys.path.insert(0, ROOT)
 
 from src.resume_parser import (parse_resume, SKILLS_DB, extract_job_role, extract_resume_entities,
-                               extract_text, canonicalize_skill)
-from src.matcher import candidate_score, skill_extraction_metrics, rank_candidates
+                               extract_text, canonicalize_skill, ACCEPTED_EXTS)
+from src.matcher import candidate_score, skill_extraction_metrics, rank_candidates, compare_candidates
 from src import structure as _struct
 from src.visualizations import set_theme as set_chart_theme
 from src.visualizations import (skill_donut, prf_radar, skill_bubble, tfidf_top_terms,
@@ -76,7 +76,7 @@ summary:focus-visible, [data-baseweb="select"]:focus-within { outline:2px solid 
   margin-right:2.4rem; font:700 1.3rem/1 var(--head); letter-spacing:-.025em; color:var(--ink);
   background:url("__LOGO__") no-repeat left center / 34px 34px; }
 [role="tablist"]::after{
-  content:"Classical NLP · No LLM"; position:static !important; width:auto !important; height:auto !important; inset:auto !important; flex:none; margin-left:auto; margin-right:128px; white-space:nowrap;
+  content:"Classical NLP · No LLM"; position:static !important; width:auto !important; height:auto !important; inset:auto !important; flex:none; margin-left:auto; margin-right:140px; white-space:nowrap;
   font:500 .86rem/1 var(--body); color:var(--ink-2); padding:8px 14px 8px 30px; border:1px solid var(--line);
   border-radius:99px; background:radial-gradient(circle at 15px 50%, #1F9D63 0 4px, transparent 5px) no-repeat, var(--surface); }
 [data-testid="stTab"]{
@@ -234,7 +234,23 @@ textarea::placeholder{ color:var(--ink-3) !important; }
 .ring b{ position:relative; font:740 1.7rem var(--head); letter-spacing:-.03em; }
 .verdict-k{ color:var(--ink-3); font-size:.95rem; margin-bottom:6px; }
 .verdict{ font:700 1.35rem/1.2 var(--head); letter-spacing:-.02em; margin-top:10px; max-width:15ch; }
-.bars{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:2rem; margin-top:1.8rem; padding-top:1.6rem; border-top:1px solid var(--line-2); }
+.bars{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.6rem 2rem; margin-top:1.8rem; padding-top:1.6rem; border-top:1px solid var(--line-2); }
+.cmp-wrap{ overflow-x:auto; }
+.cmp{ width:100%; border-collapse:collapse; font-size:.98rem; }
+.cmp th, .cmp td{ text-align:left; padding:.7rem .9rem; border-bottom:1px solid var(--line-2); vertical-align:middle; }
+.cmp thead th{ font:650 1.02rem var(--head); border-bottom:1px solid var(--line); }
+.cmp thead th small{ display:block; font:500 .8rem var(--body); color:var(--ink-3); margin-top:2px; }
+.cmp tbody th{ font-weight:560; color:var(--ink-2); white-space:nowrap; }
+.cmp tr.grp th{ font:650 .88rem var(--body); color:var(--accent); padding-top:1.1rem; border-bottom:1px solid var(--line); }
+.cmp td.best{ font-weight:650; color:var(--ok); }
+.cmp .star{ margin-left:.5rem; font:600 .72rem var(--body); background:var(--ok-bg); color:var(--ok); border-radius:99px; padding:2px 8px; }
+.rec{ margin-top:1.4rem; padding:1.2rem 1.4rem; border-radius:16px; background:var(--accent-soft); border:1px solid var(--accent-line); }
+.rec-k{ font:600 .88rem var(--body); color:var(--accent); }
+.rec-v{ font:700 1.5rem var(--head); margin:.2rem 0 .4rem; }
+.rec ul{ margin:0 0 .2rem; padding-left:1.2rem; color:var(--ink-2); line-height:1.65; }
+.why{ margin-top:1.4rem; padding-top:1.2rem; border-top:1px solid var(--line-2); }
+.why-h{ font:650 1rem var(--head); margin-bottom:.5rem; }
+.why ul{ margin:0; padding-left:1.2rem; color:var(--ink-2); font-size:.98rem; line-height:1.65; }
 .formula{ color:var(--ink-3); font-size:.9rem; margin-top:1.2rem; }
 
 .sg + .sg{ margin-top:1.6rem; }
@@ -312,15 +328,6 @@ textarea::placeholder{ color:var(--ink-3) !important; }
 [data-testid="stExpander"] details summary:hover{ background:var(--field); }
 [data-testid="stExpander"] details summary p{ font:650 1.05rem var(--head) !important; }
 [data-testid="stExpander"] details > div{ padding:.3rem 1.4rem 1.3rem !important; }
-/* centered text: expander titles and the Paste text / Upload file toggle */
-[data-testid="stExpander"] details summary{ justify-content:center !important; text-align:center !important; }
-[data-testid="stExpander"] details summary > div{ justify-content:center !important; text-align:center !important; width:100%; }
-[data-testid="stExpander"] details summary p{ text-align:center !important; }
-[data-testid="stButtonGroup"]{ justify-content:center !important; }
-[data-testid="stButtonGroup"]{ margin-top:.7rem !important; margin-bottom:.4rem !important; }
-[data-testid="stButtonGroup"] button, [data-testid="stButtonGroup"] button p{ justify-content:center !important; text-align:center !important; }
-[data-testid="stButtonGroup"] button{ display:inline-flex !important; align-items:center !important; justify-content:center !important; padding-top:.4rem !important; padding-bottom:.4rem !important; }
-[data-testid="stButtonGroup"] button p, [data-testid="stButtonGroup"] button div{ margin:0 !important; line-height:1.2 !important; display:flex; align-items:center; }
 [data-testid="stDataFrame"]{ border:1px solid var(--line); border-radius:14px; overflow:hidden; }
 [data-baseweb="select"] > div, [data-testid="stTextInput"] [data-baseweb="base-input"]{
   background:var(--field) !important; border:1.5px solid var(--line) !important; border-radius:12px !important; min-height:2.8rem; }
@@ -415,16 +422,15 @@ set_chart_theme(dark)
 
 THEME_CSS = """
 <style>
-.st-key-themebox{ position:fixed; top:33px; transform:translateY(-50%); height:auto; display:flex; align-items:center; z-index:101; width:auto !important;
-  right:max(0.5rem, calc((100% - 1160px) / 2 + 0.5rem)); }
-.st-key-themebox, .st-key-themebox > div, .st-key-themebox [data-testid="stElementContainer"], .st-key-themebox [data-testid="stVerticalBlock"]{ margin:0 !important; padding:0 !important; gap:0 !important; height:auto; display:flex !important; align-items:center !important; justify-content:center; }
-.st-key-themebox [data-testid="stCheckbox"], .st-key-themebox label{ align-items:center; }
-.st-key-themebox [data-testid="stCheckbox"], .st-key-themebox [data-testid="stToggle"]{ margin:0; }
-.st-key-themebox label{ display:flex !important; flex-direction:row !important; align-items:center !important; gap:.6rem; min-height:0 !important; line-height:1 !important; }
-.st-key-themebox label > *{ align-self:center !important; margin-top:0 !important; margin-bottom:0 !important; }
-.st-key-themebox label [data-baseweb="checkbox"], .st-key-themebox label [data-testid="stWidgetLabel"]{ display:flex !important; align-items:center !important; margin:0 !important; padding:0 !important; }
-.st-key-themebox label p{ margin:0 !important; padding:0 !important; line-height:1 !important; display:flex; align-items:center; }
-.st-key-themebox label > div:first-child{ position:relative; top:-3px; }
+.st-key-themebox{ position:fixed; top:0; height:66px; display:flex; align-items:center; z-index:101; width:auto !important;
+  right:max(1rem, calc((100vw - 1160px) / 2 - 1.2rem)); }
+.st-key-themebox, .st-key-themebox > div, .st-key-themebox [data-testid="stElementContainer"], .st-key-themebox [data-testid="stVerticalBlock"]{
+  margin:0 !important; padding:0 !important; gap:0 !important; height:66px; display:flex !important; align-items:center !important; justify-content:center; }
+.st-key-themebox [data-testid="stCheckbox"], .st-key-themebox label{ align-items:center; margin:0; }
+.st-key-themebox label{ height:35px; padding:0; border:0; background:transparent; gap:10px; display:flex !important; align-items:center !important; }
+.st-key-themebox label > *{ margin:0 !important; }
+.st-key-themebox label p{ line-height:1 !important; margin:0 !important; }
+.st-key-themebox label > div:first-child{ display:flex; align-items:center; }
 .st-key-themebox label p{ font:560 .86rem var(--body) !important; color:var(--ink-2) !important; }
 @media (max-width:900px){ .st-key-themebox{ right:1rem; } [role="tablist"]::after{ margin-right:0; } }
 </style>
@@ -476,6 +482,9 @@ def chip(text, tone="neutral", ic=None):
 def chips(items, tone, ic=None, empty="None"):
     if not items: return f'<span class="nf">{esc(empty)}</span>'
     return '<div class="chips">' + "".join(chip(i, tone, ic) for i in items) + '</div>'
+
+def _tone_of(score):
+    return "ok" if score >= 65 else ("warn" if score >= 40 else "bad")
 
 def bar(label, pct, tone, note=""):
     pct = max(0.0, min(100.0, float(pct)))
@@ -531,7 +540,7 @@ def jd_input(key):
         return st.text_area("Job description", height=214, placeholder="Paste the job description here…",
                             label_visibility="collapsed", key=f"{key}_text")
     text = ""
-    f = st.file_uploader("Job description file", type=["pdf", "docx", "txt"], key=f"{key}_file",
+    f = st.file_uploader("Job description file", type=ACCEPTED_EXTS, key=f"{key}_file",
                          label_visibility="collapsed")
     if f:
         tmp = save_upload(f); text = extract_text(tmp); os.unlink(tmp)
@@ -560,13 +569,18 @@ tab1, tab2, tab3 = st.tabs([":material/description: Single Resume",
 # SINGLE RESUME
 # ═════════════════════════════════════════════════════════════════════════════
 def run_single(resume_file, jd_text):
-    w = st.session_state.get("w_cos", 0.55)
+    w = 0.55
     with st.spinner("Reading the resume…"):
-        tmp = save_upload(resume_file); parsed = parse_resume(tmp); os.unlink(tmp)
+        tmp = save_upload(resume_file)
+        try:
+            parsed = parse_resume(tmp)
+        except Exception as e:
+            notice("err", "This file could not be read", esc(str(e))[:300]); return
+        finally:
+            os.unlink(tmp)
     with st.spinner("Scoring it against the job description…"):
         raw = parsed.get("raw_text", "")
-        scores = candidate_score(raw, parsed.get("skills", []), jd_text,
-                                 weights={"cosine": w, "skill": round(1 - w, 2)})
+        scores = candidate_score(raw, parsed.get("skills", []), jd_text, parsed=parsed)
         ents = get_entities(raw)
     st.session_state["single"] = dict(parsed=parsed, scores=scores, ents=ents, raw=raw, jd=jd_text, w=w,
                                       role=extract_job_role(jd_text), fname=resume_file.name)
@@ -605,15 +619,17 @@ def render_single(res):
       <div class="contact">{contact_html}</div></div></div>
       <div class="cand-score t-{tone}"><div class="ring" style="--p:{s["composite_score"]:.1f}" role="img"
         aria-label="Overall match {s["composite_score"]:.1f} percent"><b>{s["composite_score"]:.0f}%</b></div>
-        <div><div class="verdict-k">Overall job match</div>{chip(g + " match", GRADE_CHIP[g])}
+        <div><div class="verdict-k">Overall score</div>{chip(g + " match", GRADE_CHIP[g])}{chip("Worth a look", "accent", "check") if s.get("worth_a_look") else ""}
         <div class="verdict">{esc("for " + role) if role else "for this job description"}</div></div></div></div>
       <div class="bars">
-        {bar("Overall score", s["composite_score"], tone, g)}
-        {bar("Skill match", s["skill_match_pct"], "ok", f"{n_match} of {n_req} required skills")}
-        {bar("Text similarity", s["cosine_similarity"], "soft", "TF-IDF cosine similarity")}
+        {"".join(bar(b["label"], b["score"], _tone_of(b["score"]), f'{b["note"]} · {b["weight"]}% of the score' if b["note"] else f'{b["weight"]}% of the score') for b in s.get("breakdown", []))}
       </div>
-      <div class="formula">Overall score is {int(res["w"]*100)}% text similarity and {int(round((1-res["w"])*100))}% skill match.
-      Change the split under Scoring weights.</div></div>''')
+      {('<div class="why"><div class="why-h">Why this score</div><ul>' + "".join("<li>" + esc(r) + "</li>" for r in s.get("reasons", [])) + "</ul></div>") if s.get("reasons") else ""}
+      <div class="formula"><b>How the score is built.</b> Quantitative metrics (years of experience, skill coverage, certifications) make up 40% and qualitative metrics (skill relevance by TF-IDF, domain alignment, job alignment) make up 60%. Each part is scored 0 to 100 and the weights are shown on every bar. A related skill (for example scikit-learn for machine learning) earns partial credit. \u201cWorth a look\u201d means the score is under the target but the resume still shows strong signs of fit.</div></div>''')
+    rd = s.get("readability") or {"score": 0, "checks": []}
+    rd_body = (bar("Readability", rd["score"], _tone_of(rd["score"]), f'{sum(c["ok"] for c in rd["checks"])} of {len(rd["checks"])} checks passed')
+               + '<div class="chips" style="margin-top:1rem">' + "".join(chip(c["label"], "ok" if c["ok"] else "bad", "check" if c["ok"] else "x") for c in rd["checks"]) + '</div>')
+    md(panel("Can an ATS read this resume?", rd_body, "Applicant tracking systems first turn a resume into fields (name, email, sections). If that fails, it may never be ranked. This is separate from the score."))
 
     cover = (f'<div class="cover t-ok">{bar("Required skills found", (n_match / n_req * 100) if n_req else 0, "ok", f"{n_match} of {n_req} skills from the job description")}</div>'
              if n_req else '<div class="nf cover">No known skills were found in the job description.</div>')
@@ -703,8 +719,8 @@ with tab1:
     c1, c2 = st.columns(2, gap="large")
     with c1:
         with st.container(key="card-resume"):
-            card_head("file", "Resume", "PDF or DOCX, up to 200 MB")
-            resume_file = st.file_uploader("Resume", type=["pdf", "docx"], key="r1", label_visibility="collapsed")
+            card_head("file", "Resume", "PDF, Word, image or text file, up to 200 MB")
+            resume_file = st.file_uploader("Resume", type=ACCEPTED_EXTS, key="r1", label_visibility="collapsed")
     with c2:
         with st.container(key="card-jd"):
             card_head("briefcase", "Job description", "Paste the text or upload a file")
@@ -713,13 +729,9 @@ with tab1:
     _, mid, _ = st.columns([1, 1.15, 1])
     with mid:
         go = st.button("Analyse resume", key="btn_analyse", type="primary", icon=":material/search:", use_container_width=True)
-        with st.popover("Scoring weights", icon=":material/tune:"):
-            st.markdown("Choose how much text similarity counts against skill match.")
-            st.slider("Text similarity (TF-IDF) weight", 0.0, 1.0, 0.55, 0.05, key="w_cos")
-            st.caption(f"Skill match gets the remaining {int(round((1 - st.session_state.get('w_cos', 0.55)) * 100))}%.")
         if go:
             if not resume_file:
-                notice("err", "Add a resume first", "Upload a PDF or DOCX file to analyse.")
+                notice("err", "Add a resume first", "Upload a resume file (PDF, Word, image or text) to analyse.")
             elif not jd_text.strip():
                 notice("err", "Add a job description first", "Paste the text or upload a file to compare against.")
             else:
@@ -735,18 +747,71 @@ with tab1:
 # MULTI-RESUME RANKING
 # ═════════════════════════════════════════════════════════════════════════════
 def run_rank(files, jd):
-    cands = []
+    cands, skipped = [], []
     prog = st.progress(0, text="Reading resumes…")
     for i, f in enumerate(files):
         prog.progress((i + 1) / len(files), text=f"Reading {f.name} ({i + 1} of {len(files)})…")
-        tmp = save_upload(f); p = parse_resume(tmp); os.unlink(tmp)
+        tmp = save_upload(f)
+        try:
+            p = parse_resume(tmp)
+        except Exception as e:
+            skipped.append(f"{f.name}: {e}"[:160]); continue
+        finally:
+            os.unlink(tmp)
+        if not (p.get("raw_text") or "").strip():
+            skipped.append(f"{f.name}: no text could be read"); continue
         cands.append({"name": p.get("name") or os.path.splitext(f.name)[0], "email": p.get("email") or "",
-                      "resume_text": p.get("raw_text", ""), "skills": p.get("skills", []), "filename": f.name})
+                      "resume_text": p.get("raw_text", ""), "skills": p.get("skills", []), "filename": f.name, "parsed": {"name": p.get("name"), "ocr": p.get("ocr"), "education": p.get("education", []),
+                                                                         "n_certs": len(p.get("certifications", [])), "n_projects": len(p.get("projects", []))}})
     prog.empty()
+    if skipped:
+        notice("warn", "Some files could not be read", "Skipped: " + "; ".join(esc(x) for x in skipped))
+    if not cands:
+        return
     st.session_state["rank"] = dict(ranked=rank_candidates(cands, jd), role=extract_job_role(jd), jd=jd)
 
 SORTS = {"Overall score": "composite_score", "Skill match": "skill_match_pct",
          "Text similarity": "cosine_similarity", "Name (A to Z)": "name"}
+
+_QUAL_TONE = {"High": "ok", "Same domain": "ok", "Medium": "warn", "Partly aligned": "warn", "Not clear": "neutral",
+              "Not asked": "neutral", "Low": "bad", "Different domain": "bad"}
+
+def render_compare(res):
+    """Side-by-side comparison with quantitative and qualitative metrics and a recommendation."""
+    ranked = res["ranked"]
+    if len(ranked) < 2:
+        return
+    names = [r["name"] for r in ranked]
+    st.markdown('<div class="sec-h" style="margin-top:1.6rem">Compare candidates</div>'
+                '<div class="sec-p">Pick two to four candidates. Counts show what each resume contains. '
+                'The fit labels show how well each one suits this job.</div>', unsafe_allow_html=True)
+    pick = st.multiselect("Candidates to compare", names, default=names[:min(3, len(names))], max_selections=4,
+                          key="cmp_pick", label_visibility="collapsed")
+    if len(pick) < 2:
+        notice("warn", "Pick at least two candidates", "Choose two to four names above to compare them.")
+        return
+    cmp = compare_candidates(ranked, res["jd"], pick)
+    profs, win = cmp["profiles"], cmp["winners"]
+
+    def cell(val, best=False):
+        return f'<td class="{"best" if best else ""}">{esc(str(val))}{"<span class=\"star\">best</span>" if best else ""}</td>'
+
+    head = "<tr><th></th>" + "".join(f'<th>{esc(p["name"])}<small>Rank {p["rank"]}</small></th>' for p in profs) + "</tr>"
+    rows = ['<tr class="grp"><th colspan="%d">Overall score</th></tr>' % (len(profs) + 1),
+            "<tr><th>Final score</th>" + "".join(cell(f'{p["score"]:.1f}%', p["score"] == max(q["score"] for q in profs)) for p in profs) + "</tr>",
+            '<tr class="grp"><th colspan="%d">Quantitative: what the resume contains</th></tr>' % (len(profs) + 1)]
+    for k in ["Years of experience", "Skills listed", "Required skills matched", "Certifications", "Projects", "Education"]:
+        rows.append(f"<tr><th>{k}</th>" + "".join(cell(p["quant"][k], p["name"] in win.get(k, [])) for p in profs) + "</tr>")
+    rows.append('<tr class="grp"><th colspan="%d">Qualitative: how well it fits this job</th></tr>' % (len(profs) + 1))
+    for k in ["Skill relevance", "Domain alignment", "Job alignment"]:
+        rows.append(f"<tr><th>{k}</th>" + "".join(f'<td>{chip(p["qual"][k], _QUAL_TONE.get(p["qual"][k], "neutral"))}</td>' for p in profs) + "</tr>")
+    rows.append("<tr><th>Main domain</th>" + "".join(cell(p["domain"] or "Not clear") for p in profs) + "</tr>")
+    rec = cmp["recommendation"]
+    md(f'''<div class="panel"><div class="cmp-wrap"><table class="cmp"><thead>{head}</thead><tbody>{"".join(rows)}</tbody></table></div>
+      <div class="rec"><div class="rec-k">Recommendation</div><div class="rec-v">{esc(rec["name"])}</div>
+      <ul>{"".join("<li>" + esc(w) + "</li>" for w in rec["why"])}</ul>
+      <div class="formula">Candidates are ranked by this score: 40% quantitative (experience, skill coverage, certifications) and 60% qualitative (skill relevance, domain, job alignment).</div></div></div>''')
+
 
 def render_rank(res):
     ranked, role = res["ranked"], res["role"]
@@ -793,7 +858,7 @@ def render_rank(res):
               <div><div class="rk-name">{esc(r["name"])}</div><div class="rk-mail">{esc(r["email"]) if r["email"] else "No email found"}</div></div>
               <div class="rk-score t-{tone}"><div class="bar-h" style="margin-bottom:7px"><span>Overall score</span><span class="rk-pct">{r["composite_score"]:.1f}%</span></div>
                 <div class="bar"><i style="--w:{r["composite_score"]}%"></i></div></div>
-              <div>{chip(r["match_grade"], GRADE_CHIP[r["match_grade"]])}</div>
+              <div>{chip(r["match_grade"], GRADE_CHIP[r["match_grade"]])}{chip("Worth a look", "accent", "check") if r.get("worth_a_look") else ""}</div>
               <div class="rk-skills"><span class="ok">{icon("check", 16)}{len(r["matched_skills"])} matched</span><span class="bad">{icon("x", 16)}{len(r["missing_skills"])} missing</span></div></div>''')
             with st.expander("Skills and details"):
                 md(f'<div class="sg"><div class="sg-h">Matched<span class="count">{len(r["matched_skills"])}</span></div>{chips(r["matched_skills"], "ok", "check", "No matching skills")}</div>'
@@ -803,6 +868,7 @@ def render_rank(res):
                 st.download_button("Download candidate report", data=pretty_json(report), icon=":material/download:",
                                    file_name=f"{r['name'].replace(' ', '_')}_match.json", mime="application/json",
                                    key=f"dl_c_{r['rank']}")
+    render_compare(res)
     with st.expander("Compare scores"):
         st.plotly_chart(ranking_bar(ranked), use_container_width=True)
 
@@ -812,8 +878,8 @@ with tab2:
     m1, m2 = st.columns(2, gap="large")
     with m1:
         with st.container(key="card-multi"):
-            card_head("users", "Candidate resumes", "Add as many PDF or DOCX files as you need")
-            multi_files = st.file_uploader("Candidate resumes", type=["pdf", "docx"], accept_multiple_files=True,
+            card_head("users", "Candidate resumes", "Add as many resumes as you need: PDF, Word, image or text")
+            multi_files = st.file_uploader("Candidate resumes", type=ACCEPTED_EXTS, accept_multiple_files=True,
                                            key="mr", label_visibility="collapsed")
     with m2:
         with st.container(key="card-jd-multi"):
@@ -825,7 +891,7 @@ with tab2:
         go_rank = st.button("Rank candidates", key="btn_rank", type="primary", icon=":material/leaderboard:", use_container_width=True)
         if go_rank:
             if not multi_files:
-                notice("err", "Add at least one resume", "Upload PDF or DOCX files to rank.")
+                notice("err", "Add at least one resume", "Upload resume files (PDF, Word, image or text) to rank.")
             elif not jd_multi.strip():
                 notice("err", "Add a job description first", "Paste the text or upload a file to compare against.")
             else:
@@ -920,8 +986,8 @@ with tab3:
     e1, e2 = st.columns(2, gap="large")
     with e1:
         with st.container(key="card-eval"):
-            card_head("file", "Resume to evaluate", "PDF or DOCX, up to 200 MB")
-            mf = st.file_uploader("Resume to evaluate", type=["pdf", "docx"], key="mf", label_visibility="collapsed")
+            card_head("file", "Resume to evaluate", "PDF, Word, image or text file, up to 200 MB")
+            mf = st.file_uploader("Resume to evaluate", type=ACCEPTED_EXTS, key="mf", label_visibility="collapsed")
     with e2:
         with st.container(key="card-truth"):
             card_head("check", "Correct skills (optional)", "Separate them with commas")
@@ -933,7 +999,7 @@ with tab3:
         go_m = st.button("Compute metrics", key="btn_metrics", type="primary", icon=":material/analytics:", use_container_width=True)
         if go_m:
             if not mf:
-                notice("err", "Add a resume first", "Upload a PDF or DOCX file to evaluate.")
+                notice("err", "Add a resume first", "Upload a resume file (PDF, Word, image or text) to evaluate.")
             else:
                 run_metrics(mf, gt_input)
     mres = st.session_state.get("metrics")
